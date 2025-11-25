@@ -132,14 +132,14 @@
   - _Requirements: 4.7_
 
 - [ ] 9. 流量控制模組
-- [ ] 9.1 實作 FloodWait 錯誤處理
+- [x] 9.1 實作 FloodWait 錯誤處理
   - 捕捉 FloodWaitError 並取得等待秒數
   - 設定 floodSleepThreshold 讓 GramJS 自動處理較短等待
   - 顯示 FloodWait 倒數計時資訊供使用者知悉
   - 等待完成後自動重試操作
   - _Requirements: 5.2, 5.3_
 
-- [ ] 9.2 實作自適應速率調整
+- [x] 9.2 實作自適應速率調整
   - 支援使用者設定轉發速率上限
   - 連續發生多次 FloodWait 時自動降低轉發速率
   - 記錄速率調整事件供後續分析

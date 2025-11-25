@@ -440,9 +440,43 @@ export interface IConfigLoader {
 // ============================================================================
 
 /**
+ * 速率限制器設定
+ */
+export interface RateLimitConfig {
+  /** 批次間隔（毫秒），預設 1000 */
+  batchDelay: number;
+  /** 每分鐘最大請求數，預設 30 */
+  maxRequestsPerMinute: number;
+  /** FloodWait 自動處理門檻（秒），預設 300 */
+  floodWaitThreshold: number;
+  /** 是否啟用自適應速率調整，預設 true */
+  adaptiveEnabled: boolean;
+  /** 最小批次延遲（毫秒），預設 500 */
+  minBatchDelay: number;
+  /** 最大批次延遲（毫秒），預設 10000 */
+  maxBatchDelay: number;
+}
+
+/**
+ * 速率調整事件
+ */
+export interface RateAdjustmentEvent {
+  /** 調整時間 */
+  timestamp: Date;
+  /** 調整前的延遲 */
+  previousDelay: number;
+  /** 調整後的延遲 */
+  newDelay: number;
+  /** 調整原因 */
+  reason: string;
+}
+
+/**
  * 速率限制器介面
  *
  * 管理 API 請求速率與 FloodWait 處理
+ *
+ * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
  */
 export interface IRateLimiter {
   /**
@@ -470,6 +504,36 @@ export interface IRateLimiter {
    * 重置統計資訊
    */
   reset(): void;
+
+  /**
+   * 取得當前設定
+   *
+   * @returns 速率限制設定
+   */
+  getConfig(): RateLimitConfig;
+
+  /**
+   * 更新設定
+   *
+   * @param config - 部分設定
+   */
+  setConfig(config: Partial<RateLimitConfig>): void;
+
+  /**
+   * 取得速率調整事件記錄
+   *
+   * @returns 速率調整事件列表
+   */
+  getRateAdjustments(): RateAdjustmentEvent[];
+
+  /**
+   * FloodWait 倒數回呼（選填）
+   * 當 FloodWait 進行中時，每秒呼叫一次
+   *
+   * @param secondsRemaining - 剩餘等待秒數
+   * @param operation - 觸發的操作名稱
+   */
+  onFloodWait?: (secondsRemaining: number, operation?: string) => void;
 }
 
 // ============================================================================

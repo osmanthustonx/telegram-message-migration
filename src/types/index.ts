@@ -82,6 +82,9 @@ export type {
   IRateLimiter,
   IReportService,
   FloodWaitStats,
+  // 速率限制器設定
+  RateLimitConfig,
+  RateAdjustmentEvent,
   // Session 管理介面
   SessionPermissionResult,
   ISessionManager,
