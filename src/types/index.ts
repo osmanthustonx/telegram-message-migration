@@ -82,4 +82,12 @@ export type {
   IRateLimiter,
   IReportService,
   FloodWaitStats,
+  // Session 管理介面
+  SessionPermissionResult,
+  ISessionManager,
+  // 重連管理介面
+  ReconnectStatusEvent,
+  ReconnectStatusCallback,
+  ReconnectionConfig,
+  IReconnectionManager,
 } from './interfaces.js';

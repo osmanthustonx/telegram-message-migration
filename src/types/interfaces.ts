@@ -550,3 +550,136 @@ export interface IReportService {
     filePath: string
   ): Promise<Result<void, FileError>>;
 }
+
+// ============================================================================
+// Session 管理介面
+// ============================================================================
+
+/**
+ * Session 權限驗證結果
+ */
+export interface SessionPermissionResult {
+  /** 是否有效 */
+  valid: boolean;
+  /** 警告訊息（若權限過於寬鬆） */
+  warning?: string;
+}
+
+/**
+ * Session 管理服務介面
+ *
+ * 管理 Telegram session 檔案的儲存、載入與安全性
+ *
+ * Requirements: 1.5
+ */
+export interface ISessionManager {
+  /**
+   * 儲存 session 字串至檔案
+   *
+   * @param sessionString - Session 字串
+   * @param filePath - 檔案路徑
+   * @returns 成功或錯誤
+   */
+  saveSession(sessionString: string, filePath: string): Promise<Result<void, FileError>>;
+
+  /**
+   * 載入 session 檔案
+   *
+   * @param filePath - 檔案路徑
+   * @returns Session 字串或 null（若不存在）或錯誤
+   */
+  loadSession(filePath: string): Promise<Result<string | null, FileError>>;
+
+  /**
+   * 刪除 session 檔案
+   *
+   * @param filePath - 檔案路徑
+   * @returns 成功或錯誤
+   */
+  deleteSession(filePath: string): Promise<Result<void, FileError>>;
+
+  /**
+   * 檢查 session 檔案是否存在且有效
+   *
+   * @param filePath - 檔案路徑
+   * @returns 是否存在且有效
+   */
+  sessionExists(filePath: string): Promise<boolean>;
+
+  /**
+   * 驗證 session 檔案權限
+   *
+   * @param filePath - 檔案路徑
+   * @returns 權限驗證結果
+   */
+  validateSessionPermissions(filePath: string): Promise<SessionPermissionResult>;
+}
+
+// ============================================================================
+// 重連管理介面
+// ============================================================================
+
+/**
+ * 重連狀態事件
+ */
+export interface ReconnectStatusEvent {
+  /** 狀態：attempting（嘗試中）、connected（已連線）、failed（失敗） */
+  status: 'attempting' | 'connected' | 'failed';
+  /** 當前嘗試次數 */
+  attempt: number;
+  /** 最大嘗試次數 */
+  maxAttempts: number;
+  /** 錯誤訊息（若有） */
+  error?: string;
+}
+
+/**
+ * 重連狀態回呼函式
+ */
+export type ReconnectStatusCallback = (event: ReconnectStatusEvent) => void;
+
+/**
+ * 重連管理器配置
+ */
+export interface ReconnectionConfig {
+  /** 最大重試次數，預設 3 */
+  maxRetries?: number;
+  /** 初始延遲時間（毫秒），預設 1000 */
+  initialDelayMs?: number;
+}
+
+/**
+ * 重連管理服務介面
+ *
+ * 管理 Telegram 連線的自動重連機制
+ *
+ * Requirements: 1.6
+ */
+export interface IReconnectionManager {
+  /**
+   * 嘗試重新連線
+   *
+   * @param client - TelegramClient 實例
+   * @returns 成功或錯誤
+   */
+  attemptReconnect(client: TelegramClient): Promise<Result<void, AuthError>>;
+
+  /**
+   * 取得目前重連嘗試次數
+   *
+   * @returns 嘗試次數
+   */
+  getReconnectAttempts(): number;
+
+  /**
+   * 重置重連嘗試次數
+   */
+  resetAttempts(): void;
+
+  /**
+   * 註冊重連狀態回呼
+   *
+   * @param callback - 狀態回呼函式
+   */
+  onReconnectStatus(callback: ReconnectStatusCallback): void;
+}
