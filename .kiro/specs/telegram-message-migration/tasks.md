@@ -96,14 +96,14 @@
   - _Requirements: 2.5, 8.4_
 
 - [ ] 7. 群組管理模組
-- [ ] 7.1 實作目標群組建立
+- [x] 7.1 實作目標群組建立
   - 使用 channels.CreateChannel API 建立超級群組 (megagroup)
   - 使用原始對話名稱加上設定的前綴作為新群組名稱
   - 記錄原始對話與新群組的對應關係
   - 處理群組建立失敗並記錄錯誤
   - _Requirements: 3.1, 3.2, 3.5, 3.6_
 
-- [ ] 7.2 實作 B 帳號邀請功能
+- [x] 7.2 實作 B 帳號邀請功能
   - 使用 channels.InviteToChannel API 將 B 帳號加入群組
   - 驗證 B 帳號的使用者名稱或電話號碼是否有效
   - 處理 B 帳號無法被邀請的情境（USER_RESTRICTED、USER_NOT_FOUND）
