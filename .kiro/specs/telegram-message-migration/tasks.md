@@ -9,7 +9,7 @@
 ## Tasks
 
 - [ ] 1. 專案基礎架構建置
-- [ ] 1.1 (P) 初始化 TypeScript 專案環境
+- [x] 1.1 (P) 初始化 TypeScript 專案環境
   - 建立 Node.js 專案並設定 TypeScript 嚴格模式
   - 安裝核心相依套件：telegram (GramJS)、commander、winston、dotenv、input
   - 設定 ESLint 與 Prettier 程式碼風格規範
