@@ -40,6 +40,9 @@ export default [
       '@typescript-eslint/prefer-nullish-coalescing': 'off',
       '@typescript-eslint/strict-boolean-expressions': 'off',
       'no-console': 'off',
+      // Allow type re-exports with same name as const
+      'no-redeclare': 'off',
+      '@typescript-eslint/no-redeclare': 'off',
     },
   },
   prettier,

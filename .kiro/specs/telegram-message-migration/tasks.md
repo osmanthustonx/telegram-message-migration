@@ -16,7 +16,7 @@
   - 建立專案目錄結構：src/services、src/types、src/utils
   - _Requirements: 8.1, 8.2_
 
-- [ ] 1.2 (P) 定義共用型別與介面
+- [x] 1.2 (P) 定義共用型別與介面
   - 建立 Result 型別用於統一錯誤處理
   - 定義 DialogType、DialogStatus、LogLevel 等列舉型別
   - 設計服務介面：IAuthService、IDialogService、IGroupService、IMigrationService、IProgressService、ILogService、IConfigLoader
