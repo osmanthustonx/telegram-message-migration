@@ -397,6 +397,13 @@ export interface ILogService {
    * @param level - 日誌等級
    */
   setLevel(level: LogLevel): void;
+
+  /**
+   * 取得目前日誌等級
+   *
+   * @returns 目前的日誌等級
+   */
+  getLevel(): LogLevel;
 }
 
 // ============================================================================
