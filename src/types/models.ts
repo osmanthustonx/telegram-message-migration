@@ -35,14 +35,27 @@ export interface DialogInfo {
 
 /**
  * 對話過濾條件
+ *
+ * 過濾優先順序：
+ * 1. ID 過濾（includeIds 先套用，再套用 excludeIds）
+ * 2. 類型過濾（includeTypes 先套用，再套用 excludeTypes）
+ * 3. 訊息數量過濾（minMessageCount, maxMessageCount）
  */
 export interface DialogFilter {
-  /** 僅包含這些對話 ID */
+  /** 僅包含這些對話 ID（白名單） */
   includeIds?: string[];
-  /** 排除這些對話 ID */
+  /** 排除這些對話 ID（黑名單） */
   excludeIds?: string[];
-  /** 僅包含這些對話類型 */
+  /** 僅包含這些對話類型（舊欄位，向下相容，等同 includeTypes） */
   types?: DialogType[];
+  /** 僅包含這些對話類型 */
+  includeTypes?: DialogType[];
+  /** 排除這些對話類型 */
+  excludeTypes?: DialogType[];
+  /** 最小訊息數量（包含邊界值） */
+  minMessageCount?: number;
+  /** 最大訊息數量（包含邊界值） */
+  maxMessageCount?: number;
 }
 
 // ============================================================================

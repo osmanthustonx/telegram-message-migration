@@ -449,4 +449,488 @@ describe('DialogService', () => {
       }
     });
   });
+
+  // ============================================================================
+  // Task 6.2: 對話過濾功能測試
+  // Requirements: 2.5, 8.4
+  // ============================================================================
+
+  describe('filterDialogs', () => {
+    // Helper to create DialogInfo for testing
+    function createDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
+      return {
+        id: '1',
+        accessHash: '12345',
+        type: DialogType.Private,
+        name: 'Test Dialog',
+        messageCount: 100,
+        unreadCount: 0,
+        isArchived: false,
+        entity: {},
+        ...overrides,
+      };
+    }
+
+    describe('whitelist filtering (includeIds)', () => {
+      it('should include only dialogs in whitelist when includeIds is provided', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', name: 'Dialog 1' }),
+          createDialogInfo({ id: '2', name: 'Dialog 2' }),
+          createDialogInfo({ id: '3', name: 'Dialog 3' }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { includeIds: ['1', '3'] });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['1', '3']);
+      });
+
+      it('should include all dialogs when includeIds is empty array', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1' }),
+          createDialogInfo({ id: '2' }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { includeIds: [] });
+
+        expect(result.length).toBe(2);
+      });
+
+      it('should include all dialogs when includeIds is undefined', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1' }),
+          createDialogInfo({ id: '2' }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, {});
+
+        expect(result.length).toBe(2);
+      });
+    });
+
+    describe('blacklist filtering (excludeIds)', () => {
+      it('should exclude dialogs in blacklist when excludeIds is provided', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', name: 'Dialog 1' }),
+          createDialogInfo({ id: '2', name: 'Dialog 2' }),
+          createDialogInfo({ id: '3', name: 'Dialog 3' }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { excludeIds: ['2'] });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['1', '3']);
+      });
+
+      it('should not exclude any dialogs when excludeIds is empty', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1' }),
+          createDialogInfo({ id: '2' }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { excludeIds: [] });
+
+        expect(result.length).toBe(2);
+      });
+    });
+
+    describe('whitelist and blacklist priority', () => {
+      it('should apply whitelist before blacklist (whitelist takes precedence)', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', name: 'Dialog 1' }),
+          createDialogInfo({ id: '2', name: 'Dialog 2' }),
+          createDialogInfo({ id: '3', name: 'Dialog 3' }),
+        ];
+
+        // Whitelist: 1, 2, 3 - Blacklist: 2
+        // If whitelist is applied first, then blacklist removes 2
+        const result = dialogService.filterDialogs(dialogs, {
+          includeIds: ['1', '2', '3'],
+          excludeIds: ['2'],
+        });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['1', '3']);
+      });
+    });
+
+    describe('type filtering (includeTypes)', () => {
+      it('should include only dialogs with specified types', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', type: DialogType.Private }),
+          createDialogInfo({ id: '2', type: DialogType.Group }),
+          createDialogInfo({ id: '3', type: DialogType.Bot }),
+          createDialogInfo({ id: '4', type: DialogType.Channel }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, {
+          includeTypes: [DialogType.Private, DialogType.Bot],
+        });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['1', '3']);
+      });
+
+      it('should include all dialogs when includeTypes is empty', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', type: DialogType.Private }),
+          createDialogInfo({ id: '2', type: DialogType.Group }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { includeTypes: [] });
+
+        expect(result.length).toBe(2);
+      });
+    });
+
+    describe('type filtering (excludeTypes)', () => {
+      it('should exclude dialogs with specified types', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', type: DialogType.Private }),
+          createDialogInfo({ id: '2', type: DialogType.Group }),
+          createDialogInfo({ id: '3', type: DialogType.Bot }),
+          createDialogInfo({ id: '4', type: DialogType.Channel }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, {
+          excludeTypes: [DialogType.Bot, DialogType.Channel],
+        });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['1', '2']);
+      });
+
+      it('should not exclude any dialogs when excludeTypes is empty', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', type: DialogType.Private }),
+          createDialogInfo({ id: '2', type: DialogType.Group }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { excludeTypes: [] });
+
+        expect(result.length).toBe(2);
+      });
+    });
+
+    describe('message count filtering', () => {
+      it('should include only dialogs with messageCount >= minMessageCount', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', messageCount: 50 }),
+          createDialogInfo({ id: '2', messageCount: 100 }),
+          createDialogInfo({ id: '3', messageCount: 200 }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { minMessageCount: 100 });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['2', '3']);
+      });
+
+      it('should include only dialogs with messageCount <= maxMessageCount', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', messageCount: 50 }),
+          createDialogInfo({ id: '2', messageCount: 100 }),
+          createDialogInfo({ id: '3', messageCount: 200 }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, { maxMessageCount: 100 });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['1', '2']);
+      });
+
+      it('should include dialogs within range when both min and max are provided', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', messageCount: 50 }),
+          createDialogInfo({ id: '2', messageCount: 100 }),
+          createDialogInfo({ id: '3', messageCount: 150 }),
+          createDialogInfo({ id: '4', messageCount: 200 }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, {
+          minMessageCount: 100,
+          maxMessageCount: 150,
+        });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['2', '3']);
+      });
+    });
+
+    describe('combined filtering', () => {
+      it('should apply all filters in order: ID filters -> type filters -> message count filters', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', type: DialogType.Private, messageCount: 50 }),
+          createDialogInfo({ id: '2', type: DialogType.Private, messageCount: 150 }),
+          createDialogInfo({ id: '3', type: DialogType.Group, messageCount: 100 }),
+          createDialogInfo({ id: '4', type: DialogType.Bot, messageCount: 200 }),
+          createDialogInfo({ id: '5', type: DialogType.Channel, messageCount: 300 }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, {
+          excludeIds: ['5'],
+          includeTypes: [DialogType.Private, DialogType.Group],
+          minMessageCount: 100,
+        });
+
+        expect(result.length).toBe(2);
+        expect(result.map(d => d.id)).toEqual(['2', '3']);
+      });
+
+      it('should return empty array when no dialogs match all criteria', () => {
+        const dialogs: DialogInfo[] = [
+          createDialogInfo({ id: '1', type: DialogType.Private, messageCount: 50 }),
+          createDialogInfo({ id: '2', type: DialogType.Group, messageCount: 100 }),
+        ];
+
+        const result = dialogService.filterDialogs(dialogs, {
+          includeTypes: [DialogType.Bot],
+          minMessageCount: 1000,
+        });
+
+        expect(result.length).toBe(0);
+      });
+    });
+  });
+
+  describe('applyWhitelist', () => {
+    function createDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
+      return {
+        id: '1',
+        accessHash: '12345',
+        type: DialogType.Private,
+        name: 'Test Dialog',
+        messageCount: 100,
+        unreadCount: 0,
+        isArchived: false,
+        entity: {},
+        ...overrides,
+      };
+    }
+
+    it('should only include dialogs with IDs in the whitelist', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1' }),
+        createDialogInfo({ id: '2' }),
+        createDialogInfo({ id: '3' }),
+      ];
+
+      const result = dialogService.applyWhitelist(dialogs, ['1', '3']);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['1', '3']);
+    });
+
+    it('should return all dialogs when whitelist is empty', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1' }),
+        createDialogInfo({ id: '2' }),
+      ];
+
+      const result = dialogService.applyWhitelist(dialogs, []);
+
+      expect(result.length).toBe(2);
+    });
+
+    it('should return empty array when no dialogs match whitelist', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1' }),
+        createDialogInfo({ id: '2' }),
+      ];
+
+      const result = dialogService.applyWhitelist(dialogs, ['99', '100']);
+
+      expect(result.length).toBe(0);
+    });
+  });
+
+  describe('applyBlacklist', () => {
+    function createDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
+      return {
+        id: '1',
+        accessHash: '12345',
+        type: DialogType.Private,
+        name: 'Test Dialog',
+        messageCount: 100,
+        unreadCount: 0,
+        isArchived: false,
+        entity: {},
+        ...overrides,
+      };
+    }
+
+    it('should exclude dialogs with IDs in the blacklist', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1' }),
+        createDialogInfo({ id: '2' }),
+        createDialogInfo({ id: '3' }),
+      ];
+
+      const result = dialogService.applyBlacklist(dialogs, ['2']);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['1', '3']);
+    });
+
+    it('should return all dialogs when blacklist is empty', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1' }),
+        createDialogInfo({ id: '2' }),
+      ];
+
+      const result = dialogService.applyBlacklist(dialogs, []);
+
+      expect(result.length).toBe(2);
+    });
+  });
+
+  describe('filterByType', () => {
+    function createDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
+      return {
+        id: '1',
+        accessHash: '12345',
+        type: DialogType.Private,
+        name: 'Test Dialog',
+        messageCount: 100,
+        unreadCount: 0,
+        isArchived: false,
+        entity: {},
+        ...overrides,
+      };
+    }
+
+    it('should include only specified types when includeTypes is provided', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', type: DialogType.Private }),
+        createDialogInfo({ id: '2', type: DialogType.Group }),
+        createDialogInfo({ id: '3', type: DialogType.Bot }),
+      ];
+
+      const result = dialogService.filterByType(dialogs, [DialogType.Private, DialogType.Bot], undefined);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['1', '3']);
+    });
+
+    it('should exclude specified types when excludeTypes is provided', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', type: DialogType.Private }),
+        createDialogInfo({ id: '2', type: DialogType.Group }),
+        createDialogInfo({ id: '3', type: DialogType.Bot }),
+      ];
+
+      const result = dialogService.filterByType(dialogs, undefined, [DialogType.Bot]);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['1', '2']);
+    });
+
+    it('should apply both includeTypes and excludeTypes', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', type: DialogType.Private }),
+        createDialogInfo({ id: '2', type: DialogType.Group }),
+        createDialogInfo({ id: '3', type: DialogType.Bot }),
+        createDialogInfo({ id: '4', type: DialogType.Supergroup }),
+      ];
+
+      // Include Private and Group, then exclude Group
+      const result = dialogService.filterByType(
+        dialogs,
+        [DialogType.Private, DialogType.Group],
+        [DialogType.Group]
+      );
+
+      expect(result.length).toBe(1);
+      expect(result[0].id).toBe('1');
+    });
+
+    it('should return all dialogs when both include and exclude are undefined', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', type: DialogType.Private }),
+        createDialogInfo({ id: '2', type: DialogType.Group }),
+      ];
+
+      const result = dialogService.filterByType(dialogs, undefined, undefined);
+
+      expect(result.length).toBe(2);
+    });
+  });
+
+  describe('filterByMessageCount', () => {
+    function createDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
+      return {
+        id: '1',
+        accessHash: '12345',
+        type: DialogType.Private,
+        name: 'Test Dialog',
+        messageCount: 100,
+        unreadCount: 0,
+        isArchived: false,
+        entity: {},
+        ...overrides,
+      };
+    }
+
+    it('should filter by minimum message count', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', messageCount: 50 }),
+        createDialogInfo({ id: '2', messageCount: 100 }),
+        createDialogInfo({ id: '3', messageCount: 150 }),
+      ];
+
+      const result = dialogService.filterByMessageCount(dialogs, 100, undefined);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['2', '3']);
+    });
+
+    it('should filter by maximum message count', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', messageCount: 50 }),
+        createDialogInfo({ id: '2', messageCount: 100 }),
+        createDialogInfo({ id: '3', messageCount: 150 }),
+      ];
+
+      const result = dialogService.filterByMessageCount(dialogs, undefined, 100);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['1', '2']);
+    });
+
+    it('should filter by both min and max message count', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', messageCount: 50 }),
+        createDialogInfo({ id: '2', messageCount: 100 }),
+        createDialogInfo({ id: '3', messageCount: 150 }),
+        createDialogInfo({ id: '4', messageCount: 200 }),
+      ];
+
+      const result = dialogService.filterByMessageCount(dialogs, 100, 150);
+
+      expect(result.length).toBe(2);
+      expect(result.map(d => d.id)).toEqual(['2', '3']);
+    });
+
+    it('should return all dialogs when both min and max are undefined', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', messageCount: 50 }),
+        createDialogInfo({ id: '2', messageCount: 100 }),
+      ];
+
+      const result = dialogService.filterByMessageCount(dialogs, undefined, undefined);
+
+      expect(result.length).toBe(2);
+    });
+
+    it('should include dialogs with exact boundary values', () => {
+      const dialogs: DialogInfo[] = [
+        createDialogInfo({ id: '1', messageCount: 100 }),
+        createDialogInfo({ id: '2', messageCount: 200 }),
+      ];
+
+      const result = dialogService.filterByMessageCount(dialogs, 100, 200);
+
+      expect(result.length).toBe(2);
+    });
+  });
 });

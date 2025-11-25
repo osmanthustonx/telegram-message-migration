@@ -61,33 +61,117 @@ export class DialogService implements IDialogService {
   /**
    * 根據過濾條件篩選對話
    *
+   * 過濾優先順序：
+   * 1. ID 過濾（includeIds 先套用，再套用 excludeIds）
+   * 2. 類型過濾（includeTypes 先套用，再套用 excludeTypes）
+   * 3. 訊息數量過濾（minMessageCount, maxMessageCount）
+   *
    * @param dialogs - 原始對話清單
    * @param filter - 過濾條件
    * @returns 篩選後的對話清單
    */
   filterDialogs(dialogs: DialogInfo[], filter: DialogFilter): DialogInfo[] {
+    let result = dialogs;
+
+    // Step 1: Apply ID filters
+    if (filter.includeIds !== undefined) {
+      result = this.applyWhitelist(result, filter.includeIds);
+    }
+    if (filter.excludeIds !== undefined) {
+      result = this.applyBlacklist(result, filter.excludeIds);
+    }
+
+    // Step 2: Apply type filters
+    // Support both legacy 'types' field and new 'includeTypes' field
+    const includeTypes = filter.includeTypes ?? filter.types;
+    result = this.filterByType(result, includeTypes, filter.excludeTypes);
+
+    // Step 3: Apply message count filters
+    result = this.filterByMessageCount(result, filter.minMessageCount, filter.maxMessageCount);
+
+    return result;
+  }
+
+  /**
+   * 套用白名單過濾
+   *
+   * 若 includeIds 為空陣列或 undefined，則不過濾（回傳所有對話）
+   *
+   * @param dialogs - 對話清單
+   * @param includeIds - 白名單 ID 列表
+   * @returns 過濾後的對話清單
+   */
+  applyWhitelist(dialogs: DialogInfo[], includeIds: string[]): DialogInfo[] {
+    // Empty whitelist means no filtering (include all)
+    if (includeIds.length === 0) {
+      return dialogs;
+    }
+    return dialogs.filter(dialog => includeIds.includes(dialog.id));
+  }
+
+  /**
+   * 套用黑名單過濾
+   *
+   * @param dialogs - 對話清單
+   * @param excludeIds - 黑名單 ID 列表
+   * @returns 過濾後的對話清單
+   */
+  applyBlacklist(dialogs: DialogInfo[], excludeIds: string[]): DialogInfo[] {
+    // Empty blacklist means no filtering (exclude none)
+    if (excludeIds.length === 0) {
+      return dialogs;
+    }
+    return dialogs.filter(dialog => !excludeIds.includes(dialog.id));
+  }
+
+  /**
+   * 依對話類型過濾
+   *
+   * @param dialogs - 對話清單
+   * @param includeTypes - 僅包含的類型（若為空或 undefined，則不過濾）
+   * @param excludeTypes - 排除的類型（若為空或 undefined，則不過濾）
+   * @returns 過濾後的對話清單
+   */
+  filterByType(
+    dialogs: DialogInfo[],
+    includeTypes?: DialogType[],
+    excludeTypes?: DialogType[]
+  ): DialogInfo[] {
+    let result = dialogs;
+
+    // Apply include filter first
+    if (includeTypes !== undefined && includeTypes.length > 0) {
+      result = result.filter(dialog => includeTypes.includes(dialog.type));
+    }
+
+    // Then apply exclude filter
+    if (excludeTypes !== undefined && excludeTypes.length > 0) {
+      result = result.filter(dialog => !excludeTypes.includes(dialog.type));
+    }
+
+    return result;
+  }
+
+  /**
+   * 依訊息數量過濾
+   *
+   * @param dialogs - 對話清單
+   * @param min - 最小訊息數量（包含邊界值）
+   * @param max - 最大訊息數量（包含邊界值）
+   * @returns 過濾後的對話清單
+   */
+  filterByMessageCount(
+    dialogs: DialogInfo[],
+    min?: number,
+    max?: number
+  ): DialogInfo[] {
     return dialogs.filter(dialog => {
-      // 檢查 includeIds 白名單
-      if (filter.includeIds && filter.includeIds.length > 0) {
-        if (!filter.includeIds.includes(dialog.id)) {
-          return false;
-        }
+      if (min !== undefined && dialog.messageCount < min) {
+        return false;
       }
-
-      // 檢查 excludeIds 黑名單
-      if (filter.excludeIds && filter.excludeIds.length > 0) {
-        if (filter.excludeIds.includes(dialog.id)) {
-          return false;
-        }
+      if (max !== undefined && dialog.messageCount > max) {
+        return false;
       }
-
-      // 檢查對話類型
-      if (filter.types && filter.types.length > 0) {
-        if (!filter.types.includes(dialog.type)) {
-          return false;
-        }
-      }
-
       return true;
     });
   }
