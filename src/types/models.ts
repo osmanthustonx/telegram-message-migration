@@ -526,3 +526,69 @@ export interface RateLimiterStats {
   /** 當前速率（請求/秒） */
   currentRate: number;
 }
+
+// ============================================================================
+// Orchestrator 模型
+// ============================================================================
+
+/**
+ * 遷移協調器設定
+ *
+ * Task 11.1: 整合所有服務模組的設定參數
+ */
+export interface OrchestratorConfig {
+  /** Telegram API ID */
+  apiId: number;
+  /** Telegram API Hash */
+  apiHash: string;
+  /** Session 檔案路徑 */
+  sessionPath: string;
+  /** 進度檔案路徑 */
+  progressPath: string;
+  /** B 帳號識別碼（username 或電話） */
+  targetAccountB: string;
+  /** 每批次訊息數量 */
+  batchSize: number;
+  /** 群組名稱前綴 */
+  groupNamePrefix: string;
+  /** 日誌等級 */
+  logLevel: string;
+  /** 日誌檔案路徑 */
+  logFilePath: string;
+  /** 對話過濾條件（選填） */
+  dialogFilter?: DialogFilter;
+  /** 日期範圍（選填） */
+  dateRange?: DateRange;
+}
+
+/**
+ * 遷移選項（執行階段選項）
+ */
+export interface OrchestratorOptions {
+  /** 預覽模式（不實際執行） */
+  dryRun?: boolean;
+  /** 最大重試次數 */
+  maxRetries?: number;
+}
+
+/**
+ * Orchestrator 執行結果
+ */
+export interface OrchestratorResult {
+  /** 對話總數 */
+  totalDialogs: number;
+  /** 已完成對話數 */
+  completedDialogs: number;
+  /** 失敗對話數 */
+  failedDialogs: number;
+  /** 已跳過對話數 */
+  skippedDialogs: number;
+  /** 訊息總數 */
+  totalMessages: number;
+  /** 已遷移訊息數 */
+  migratedMessages: number;
+  /** 失敗訊息數 */
+  failedMessages: number;
+  /** 執行時間（秒） */
+  duration: number;
+}

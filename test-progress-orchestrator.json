@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "startedAt": "2025-11-25T16:22:02.109Z",
+  "updatedAt": "2025-11-25T16:29:31.904Z",
+  "sourceAccount": "",
+  "targetAccount": "",
+  "currentPhase": "idle",
+  "dialogs": {},
+  "floodWaitEvents": [],
+  "stats": {
+    "totalDialogs": 0,
+    "completedDialogs": 0,
+    "failedDialogs": 0,
+    "skippedDialogs": 0,
+    "totalMessages": 0,
+    "migratedMessages": 0,
+    "failedMessages": 0,
+    "floodWaitCount": 0,
+    "totalFloodWaitSeconds": 0
+  }
+}
