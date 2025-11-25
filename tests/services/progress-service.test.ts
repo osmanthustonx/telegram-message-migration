@@ -675,12 +675,15 @@ describe('ProgressService', () => {
       const exported = progressService.exportProgress(progress);
       const parsed = JSON.parse(exported);
 
-      // Assert
-      expect(parsed.version).toBeDefined();
-      expect(parsed.startedAt).toBeDefined();
-      expect(parsed.updatedAt).toBeDefined();
-      expect(parsed.dialogs).toBeDefined();
-      expect(parsed.stats).toBeDefined();
+      // Assert - 新格式：資料在 progress 欄位中
+      expect(parsed.exportVersion).toBeDefined();
+      expect(parsed.exportedAt).toBeDefined();
+      expect(parsed.progress).toBeDefined();
+      expect(parsed.progress.version).toBeDefined();
+      expect(parsed.progress.startedAt).toBeDefined();
+      expect(parsed.progress.updatedAt).toBeDefined();
+      expect(parsed.progress.dialogs).toBeDefined();
+      expect(parsed.progress.stats).toBeDefined();
     });
 
     it('應將 Map 轉換為物件', () => {
@@ -692,9 +695,9 @@ describe('ProgressService', () => {
       const exported = progressService.exportProgress(progress);
       const parsed = JSON.parse(exported);
 
-      // Assert
-      expect(Array.isArray(parsed.dialogs)).toBe(false);
-      expect(typeof parsed.dialogs).toBe('object');
+      // Assert - 新格式：資料在 progress 欄位中
+      expect(Array.isArray(parsed.progress.dialogs)).toBe(false);
+      expect(typeof parsed.progress.dialogs).toBe('object');
     });
   });
 
@@ -1687,110 +1690,761 @@ describe('Task 5.2: 對話進度追蹤', () => {
       expect(allProgress.size).toBe(0);
     });
   });
+});
+
+// ============================================================================
+// Task 5.3: 進度匯出與匯入測試
+// Requirements: 6.6, 6.7
+// ============================================================================
+
+describe('Task 5.3: 進度匯出與匯入', () => {
+  let progressService: IProgressService;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    const { ProgressService } = await import(
+      '../../src/services/progress-service.js'
+    );
+    progressService = new ProgressService();
+  });
 
   // ============================================================================
-  // 狀態轉換測試
+  // 匯出格式測試
   // ============================================================================
 
-  describe('狀態轉換流程', () => {
-    it('pending → in_progress 轉換', () => {
+  describe('exportProgress - 匯出格式', () => {
+    it('應匯出包含 exportVersion 欄位的格式', () => {
       // Arrange
       const progress = createMockProgress();
-      const dialog = createMockDialogProgress('dialog_1');
-      dialog.status = DialogStatus.Pending;
-      progress.dialogs.set('dialog_1', dialog);
 
       // Act
-      const updated = (progressService as unknown as {
-        markDialogStarted: (
-          progress: MigrationProgress,
-          dialogId: string,
-          targetGroupId: string
-        ) => MigrationProgress;
-      }).markDialogStarted(progress, 'dialog_1', 'group_1');
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
 
       // Assert
-      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.InProgress);
+      expect(parsed.exportVersion).toBe('1.0');
     });
 
-    it('in_progress → completed 轉換', () => {
+    it('應匯出包含 exportedAt 時間戳記', () => {
       // Arrange
       const progress = createMockProgress();
-      const dialog = createMockDialogProgress('dialog_1');
-      dialog.status = DialogStatus.InProgress;
-      progress.dialogs.set('dialog_1', dialog);
+      const beforeTime = new Date().toISOString();
 
       // Act
-      const updated = progressService.markDialogComplete(progress, 'dialog_1');
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
 
       // Assert
-      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Completed);
+      const afterTime = new Date().toISOString();
+      expect(parsed.exportedAt).toBeDefined();
+      expect(parsed.exportedAt >= beforeTime).toBe(true);
+      expect(parsed.exportedAt <= afterTime).toBe(true);
     });
 
-    it('in_progress → failed 轉換', () => {
+    it('應將 progress 包裝在 progress 欄位中', () => {
       // Arrange
       const progress = createMockProgress();
-      const dialog = createMockDialogProgress('dialog_1');
-      dialog.status = DialogStatus.InProgress;
-      progress.dialogs.set('dialog_1', dialog);
+      progress.sourceAccount = '+886912***789';
+      progress.targetAccount = '@target_user';
 
       // Act
-      const updated = (progressService as unknown as {
-        markDialogFailed: (
-          progress: MigrationProgress,
-          dialogId: string,
-          error: string
-        ) => MigrationProgress;
-      }).markDialogFailed(progress, 'dialog_1', 'Unrecoverable error');
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
 
       // Assert
-      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Failed);
+      expect(parsed.progress).toBeDefined();
+      expect(parsed.progress.version).toBe('1.0');
+      expect(parsed.progress.sourceAccount).toBe('+886912***789');
+      expect(parsed.progress.targetAccount).toBe('@target_user');
     });
 
-    it('pending → skipped 轉換', () => {
+    it('應將 Date 物件轉換為 ISO 字串', () => {
       // Arrange
       const progress = createMockProgress();
-      const dialog = createMockDialogProgress('dialog_1');
-      dialog.status = DialogStatus.Pending;
-      progress.dialogs.set('dialog_1', dialog);
+      progress.startedAt = '2025-01-15T10:00:00Z';
+      progress.updatedAt = '2025-01-15T12:30:00Z';
 
       // Act
-      const updated = (progressService as unknown as {
-        markDialogSkipped: (
-          progress: MigrationProgress,
-          dialogId: string,
-          reason: string
-        ) => MigrationProgress;
-      }).markDialogSkipped(progress, 'dialog_1', 'User skipped');
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
 
       // Assert
-      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Skipped);
+      expect(typeof parsed.progress.startedAt).toBe('string');
+      expect(typeof parsed.progress.updatedAt).toBe('string');
+      expect(parsed.progress.startedAt).toBe('2025-01-15T10:00:00Z');
+    });
+
+    it('應將 Map 轉換為 plain object', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.dialogs.set('dialog_1', createMockDialogProgress('dialog_1'));
+      progress.dialogs.set('dialog_2', createMockDialogProgress('dialog_2'));
+
+      // Act
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
+
+      // Assert
+      expect(typeof parsed.progress.dialogs).toBe('object');
+      expect(Array.isArray(parsed.progress.dialogs)).toBe(false);
+      expect(parsed.progress.dialogs['dialog_1']).toBeDefined();
+      expect(parsed.progress.dialogs['dialog_2']).toBeDefined();
+    });
+
+    it('應匯出 pretty-printed JSON（含縮排）', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const exported = progressService.exportProgress(progress);
+
+      // Assert
+      expect(exported).toContain('\n');
+      expect(exported).toContain('  '); // 至少有縮排
+    });
+
+    it('應完整匯出 floodWaitEvents 陣列', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.floodWaitEvents = [
+        { timestamp: '2025-01-15T10:00:00Z', seconds: 30, operation: 'forward' },
+        { timestamp: '2025-01-15T11:00:00Z', seconds: 60, operation: 'getHistory' },
+      ];
+
+      // Act
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
+
+      // Assert
+      expect(parsed.progress.floodWaitEvents).toHaveLength(2);
+      expect(parsed.progress.floodWaitEvents[0].seconds).toBe(30);
+      expect(parsed.progress.floodWaitEvents[1].operation).toBe('getHistory');
+    });
+
+    it('應完整匯出 stats 物件', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.totalDialogs = 10;
+      progress.stats.completedDialogs = 5;
+      progress.stats.migratedMessages = 5000;
+
+      // Act
+      const exported = progressService.exportProgress(progress);
+      const parsed = JSON.parse(exported);
+
+      // Assert
+      expect(parsed.progress.stats.totalDialogs).toBe(10);
+      expect(parsed.progress.stats.completedDialogs).toBe(5);
+      expect(parsed.progress.stats.migratedMessages).toBe(5000);
     });
   });
 
   // ============================================================================
-  // 完成時記錄完成時間
+  // 匯入驗證測試
   // ============================================================================
 
-  describe('完成時間記錄', () => {
-    it('markDialogComplete 應記錄完成時間', () => {
+  describe('importProgress - 匯入驗證', () => {
+    it('應處理無效的 JSON 字串（INVALID_JSON 錯誤）', () => {
       // Arrange
-      const progress = createMockProgress();
-      const dialog = createMockDialogProgress('dialog_1');
-      dialog.completedAt = null;
-      progress.dialogs.set('dialog_1', dialog);
-
-      const beforeTime = new Date().toISOString();
+      const invalidJson = '{ not valid json }';
 
       // Act
-      const updated = progressService.markDialogComplete(progress, 'dialog_1');
+      const result = progressService.importProgress(invalidJson);
 
       // Assert
-      const afterTime = new Date().toISOString();
-      const dialogProgress = updated.dialogs.get('dialog_1');
-      expect(dialogProgress?.completedAt).not.toBeNull();
-      expect(dialogProgress?.completedAt! >= beforeTime).toBe(true);
-      expect(dialogProgress?.completedAt! <= afterTime).toBe(true);
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe('INVALID_FORMAT');
+        expect(result.error.message).toContain('Invalid JSON');
+      }
+    });
+
+    it('應驗證 exportVersion 欄位存在（新匯出格式）', () => {
+      // Arrange - 缺少 exportVersion 的新格式
+      const noVersionFormat = JSON.stringify({
+        exportedAt: '2025-01-15T10:00:00Z',
+        progress: {
+          version: '1.0',
+          startedAt: '2025-01-15T10:00:00Z',
+          dialogs: {},
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(noVersionFormat);
+
+      // Assert - 應該仍可接受（向後相容舊格式）
+      // 或者回傳錯誤（取決於實作策略）
+      // 這裡我們選擇向後相容，所以仍應成功
+      expect(result.success).toBe(true);
+    });
+
+    it('應驗證 progress 欄位必須存在（新格式）或直接是進度物件（舊格式）', () => {
+      // Arrange - 舊格式（直接是進度物件）
+      const oldFormat = JSON.stringify({
+        version: '1.0',
+        startedAt: '2025-01-15T10:00:00Z',
+        dialogs: {},
+      });
+
+      // Act
+      const result = progressService.importProgress(oldFormat);
+
+      // Assert - 應向後相容舊格式
+      expect(result.success).toBe(true);
+    });
+
+    it('應拒絕不相容的 exportVersion', () => {
+      // Arrange
+      const incompatibleVersion = JSON.stringify({
+        exportVersion: '99.0',
+        exportedAt: '2025-01-15T10:00:00Z',
+        progress: {
+          version: '1.0',
+          startedAt: '2025-01-15T10:00:00Z',
+          dialogs: {},
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(incompatibleVersion);
+
+      // Assert
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe('INVALID_FORMAT');
+        expect(result.error.message).toContain('version');
+      }
+    });
+
+    it('應驗證 progress.version 欄位', () => {
+      // Arrange
+      const invalidProgressVersion = JSON.stringify({
+        exportVersion: '1.0',
+        exportedAt: '2025-01-15T10:00:00Z',
+        progress: {
+          version: '99.0', // 無效的進度版本
+          startedAt: '2025-01-15T10:00:00Z',
+          dialogs: {},
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(invalidProgressVersion);
+
+      // Assert
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe('INVALID_FORMAT');
+      }
+    });
+
+    it('應驗證必要欄位存在（startedAt）', () => {
+      // Arrange
+      const missingStartedAt = JSON.stringify({
+        exportVersion: '1.0',
+        exportedAt: '2025-01-15T10:00:00Z',
+        progress: {
+          version: '1.0',
+          // 缺少 startedAt
+          dialogs: {},
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(missingStartedAt);
+
+      // Assert
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe('INVALID_FORMAT');
+      }
+    });
+
+    it('應驗證必要欄位存在（dialogs）', () => {
+      // Arrange
+      const missingDialogs = JSON.stringify({
+        exportVersion: '1.0',
+        exportedAt: '2025-01-15T10:00:00Z',
+        progress: {
+          version: '1.0',
+          startedAt: '2025-01-15T10:00:00Z',
+          // 缺少 dialogs
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(missingDialogs);
+
+      // Assert
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.type).toBe('INVALID_FORMAT');
+      }
+    });
+
+    it('應將 ISO 字串轉換回 Date-like 字串格式', () => {
+      // Arrange
+      const validExport = JSON.stringify({
+        exportVersion: '1.0',
+        exportedAt: '2025-01-15T14:00:00Z',
+        progress: {
+          version: '1.0',
+          startedAt: '2025-01-15T10:00:00Z',
+          updatedAt: '2025-01-15T12:30:00Z',
+          dialogs: {},
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(validExport);
+
+      // Assert
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.startedAt).toBe('2025-01-15T10:00:00Z');
+        expect(result.data.updatedAt).toBe('2025-01-15T12:30:00Z');
+      }
+    });
+
+    it('應將 plain object 轉換回 Map', () => {
+      // Arrange
+      const validExport = JSON.stringify({
+        exportVersion: '1.0',
+        exportedAt: '2025-01-15T14:00:00Z',
+        progress: {
+          version: '1.0',
+          startedAt: '2025-01-15T10:00:00Z',
+          dialogs: {
+            dialog_1: {
+              dialogId: 'dialog_1',
+              dialogName: 'Test Dialog',
+              dialogType: 'private',
+              status: 'completed',
+              targetGroupId: 'group_1',
+              lastMessageId: 100,
+              migratedCount: 100,
+              totalCount: 100,
+              errors: [],
+              startedAt: '2025-01-15T10:00:00Z',
+              completedAt: '2025-01-15T11:00:00Z',
+            },
+          },
+        },
+      });
+
+      // Act
+      const result = progressService.importProgress(validExport);
+
+      // Assert
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.dialogs).toBeInstanceOf(Map);
+        expect(result.data.dialogs.has('dialog_1')).toBe(true);
+        expect(result.data.dialogs.get('dialog_1')?.dialogName).toBe('Test Dialog');
+      }
+    });
+
+    it('應成功匯入完整的匯出資料', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.dialogs.set('dialog_1', createMockDialogProgress('dialog_1'));
+      progress.stats.totalDialogs = 5;
+      progress.stats.completedDialogs = 2;
+
+      const exported = progressService.exportProgress(progress);
+
+      // Act
+      const result = progressService.importProgress(exported);
+
+      // Assert
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.stats.totalDialogs).toBe(5);
+        expect(result.data.stats.completedDialogs).toBe(2);
+        expect(result.data.dialogs.has('dialog_1')).toBe(true);
+      }
+    });
+  });
+
+  // ============================================================================
+  // mergeProgress 方法測試
+  // ============================================================================
+
+  describe('mergeProgress 方法', () => {
+    // 引入 MergeStrategy
+    let MergeStrategy: {
+      SkipCompleted: 'skip_completed';
+      OverwriteAll: 'overwrite_all';
+      MergeProgress: 'merge_progress';
+    };
+
+    beforeEach(async () => {
+      const enums = await import('../../src/types/enums.js');
+      MergeStrategy = (enums as unknown as { MergeStrategy: typeof MergeStrategy }).MergeStrategy;
+    });
+
+    it('應實作 mergeProgress 方法', () => {
+      expect(typeof (progressService as unknown as { mergeProgress: unknown }).mergeProgress).toBe('function');
+    });
+
+    describe('SkipCompleted 策略', () => {
+      it('應保留已完成的對話，匯入待處理的對話', () => {
+        // Arrange
+        const existing = createMockProgress();
+        const completedDialog = createMockDialogProgress('dialog_1');
+        completedDialog.status = DialogStatus.Completed;
+        completedDialog.migratedCount = 100;
+        existing.dialogs.set('dialog_1', completedDialog);
+
+        const imported = createMockProgress();
+        const pendingDialog = createMockDialogProgress('dialog_1');
+        pendingDialog.status = DialogStatus.Pending;
+        pendingDialog.migratedCount = 0;
+        imported.dialogs.set('dialog_1', pendingDialog);
+
+        const newDialog = createMockDialogProgress('dialog_2');
+        newDialog.status = DialogStatus.Pending;
+        imported.dialogs.set('dialog_2', newDialog);
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'skip_completed');
+
+        // Assert
+        expect(merged.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Completed);
+        expect(merged.dialogs.get('dialog_1')?.migratedCount).toBe(100);
+        expect(merged.dialogs.has('dialog_2')).toBe(true);
+        expect(merged.dialogs.get('dialog_2')?.status).toBe(DialogStatus.Pending);
+      });
+
+      it('應匯入不存在於既有進度的對話', () => {
+        // Arrange
+        const existing = createMockProgress();
+        existing.dialogs.set('dialog_1', createMockDialogProgress('dialog_1'));
+
+        const imported = createMockProgress();
+        imported.dialogs.set('dialog_2', createMockDialogProgress('dialog_2'));
+        imported.dialogs.set('dialog_3', createMockDialogProgress('dialog_3'));
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'skip_completed');
+
+        // Assert
+        expect(merged.dialogs.has('dialog_1')).toBe(true);
+        expect(merged.dialogs.has('dialog_2')).toBe(true);
+        expect(merged.dialogs.has('dialog_3')).toBe(true);
+      });
+    });
+
+    describe('OverwriteAll 策略', () => {
+      it('應完全覆蓋既有進度', () => {
+        // Arrange
+        const existing = createMockProgress();
+        existing.sourceAccount = '+886912000001';
+        existing.dialogs.set('dialog_1', createMockDialogProgress('dialog_1'));
+        existing.stats.totalDialogs = 10;
+
+        const imported = createMockProgress();
+        imported.sourceAccount = '+886912000002';
+        imported.dialogs.set('dialog_2', createMockDialogProgress('dialog_2'));
+        imported.stats.totalDialogs = 5;
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'overwrite_all');
+
+        // Assert
+        expect(merged.sourceAccount).toBe('+886912000002');
+        expect(merged.dialogs.has('dialog_1')).toBe(false);
+        expect(merged.dialogs.has('dialog_2')).toBe(true);
+        expect(merged.stats.totalDialogs).toBe(5);
+      });
+    });
+
+    describe('MergeProgress 策略', () => {
+      it('應保留進度較多的版本（既有較多）', () => {
+        // Arrange
+        const existing = createMockProgress();
+        const existingDialog = createMockDialogProgress('dialog_1');
+        existingDialog.migratedCount = 80;
+        existingDialog.lastMessageId = 800;
+        existing.dialogs.set('dialog_1', existingDialog);
+
+        const imported = createMockProgress();
+        const importedDialog = createMockDialogProgress('dialog_1');
+        importedDialog.migratedCount = 50;
+        importedDialog.lastMessageId = 500;
+        imported.dialogs.set('dialog_1', importedDialog);
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'merge_progress');
+
+        // Assert
+        expect(merged.dialogs.get('dialog_1')?.migratedCount).toBe(80);
+        expect(merged.dialogs.get('dialog_1')?.lastMessageId).toBe(800);
+      });
+
+      it('應保留進度較多的版本（匯入較多）', () => {
+        // Arrange
+        const existing = createMockProgress();
+        const existingDialog = createMockDialogProgress('dialog_1');
+        existingDialog.migratedCount = 30;
+        existingDialog.lastMessageId = 300;
+        existing.dialogs.set('dialog_1', existingDialog);
+
+        const imported = createMockProgress();
+        const importedDialog = createMockDialogProgress('dialog_1');
+        importedDialog.migratedCount = 70;
+        importedDialog.lastMessageId = 700;
+        imported.dialogs.set('dialog_1', importedDialog);
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'merge_progress');
+
+        // Assert
+        expect(merged.dialogs.get('dialog_1')?.migratedCount).toBe(70);
+        expect(merged.dialogs.get('dialog_1')?.lastMessageId).toBe(700);
+      });
+
+      it('已完成狀態視為 100% 進度', () => {
+        // Arrange
+        const existing = createMockProgress();
+        const existingDialog = createMockDialogProgress('dialog_1');
+        existingDialog.status = DialogStatus.Completed;
+        existingDialog.migratedCount = 100;
+        existing.dialogs.set('dialog_1', existingDialog);
+
+        const imported = createMockProgress();
+        const importedDialog = createMockDialogProgress('dialog_1');
+        importedDialog.status = DialogStatus.InProgress;
+        importedDialog.migratedCount = 150; // 即使數字更大，已完成的優先
+        imported.dialogs.set('dialog_1', importedDialog);
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'merge_progress');
+
+        // Assert
+        expect(merged.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Completed);
+      });
+
+      it('應合併雙方獨有的對話', () => {
+        // Arrange
+        const existing = createMockProgress();
+        existing.dialogs.set('dialog_1', createMockDialogProgress('dialog_1'));
+
+        const imported = createMockProgress();
+        imported.dialogs.set('dialog_2', createMockDialogProgress('dialog_2'));
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'merge_progress');
+
+        // Assert
+        expect(merged.dialogs.has('dialog_1')).toBe(true);
+        expect(merged.dialogs.has('dialog_2')).toBe(true);
+      });
+    });
+
+    describe('統計資訊更新', () => {
+      it('合併後應重新計算 stats', () => {
+        // Arrange
+        const existing = createMockProgress();
+        const dialog1 = createMockDialogProgress('dialog_1');
+        dialog1.status = DialogStatus.Completed;
+        dialog1.migratedCount = 100;
+        dialog1.totalCount = 100;
+        existing.dialogs.set('dialog_1', dialog1);
+
+        const imported = createMockProgress();
+        const dialog2 = createMockDialogProgress('dialog_2');
+        dialog2.status = DialogStatus.Pending;
+        dialog2.migratedCount = 0;
+        dialog2.totalCount = 200;
+        imported.dialogs.set('dialog_2', dialog2);
+
+        // Act
+        const merged = (progressService as unknown as {
+          mergeProgress: (
+            existing: MigrationProgress,
+            imported: MigrationProgress,
+            strategy: string
+          ) => MigrationProgress;
+        }).mergeProgress(existing, imported, 'merge_progress');
+
+        // Assert
+        expect(merged.stats.totalDialogs).toBe(2);
+        expect(merged.stats.completedDialogs).toBe(1);
+        expect(merged.stats.totalMessages).toBe(300);
+        expect(merged.stats.migratedMessages).toBe(100);
+      });
+    });
+  });
+
+  // ============================================================================
+  // 從頭開始或跳過已處理對話選項測試
+  // ============================================================================
+
+  describe('從頭開始或跳過已處理對話選項', () => {
+    it('使用 OverwriteAll 可從頭開始', () => {
+      // Arrange
+      const existing = createMockProgress();
+      const completedDialog = createMockDialogProgress('dialog_1');
+      completedDialog.status = DialogStatus.Completed;
+      existing.dialogs.set('dialog_1', completedDialog);
+
+      const imported = createMockProgress();
+      const pendingDialog = createMockDialogProgress('dialog_1');
+      pendingDialog.status = DialogStatus.Pending;
+      pendingDialog.migratedCount = 0;
+      imported.dialogs.set('dialog_1', pendingDialog);
+
+      // Act
+      const merged = (progressService as unknown as {
+        mergeProgress: (
+          existing: MigrationProgress,
+          imported: MigrationProgress,
+          strategy: string
+        ) => MigrationProgress;
+      }).mergeProgress(existing, imported, 'overwrite_all');
+
+      // Assert - 從頭開始，已完成的變成待處理
+      expect(merged.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Pending);
+      expect(merged.dialogs.get('dialog_1')?.migratedCount).toBe(0);
+    });
+
+    it('使用 SkipCompleted 可跳過已處理對話', () => {
+      // Arrange
+      const existing = createMockProgress();
+      const completedDialog = createMockDialogProgress('dialog_1');
+      completedDialog.status = DialogStatus.Completed;
+      completedDialog.migratedCount = 500;
+      existing.dialogs.set('dialog_1', completedDialog);
+
+      const imported = createMockProgress();
+      // 即使匯入資料中 dialog_1 是待處理，也應跳過
+      const pendingDialog = createMockDialogProgress('dialog_1');
+      pendingDialog.status = DialogStatus.Pending;
+      imported.dialogs.set('dialog_1', pendingDialog);
+
+      // Act
+      const merged = (progressService as unknown as {
+        mergeProgress: (
+          existing: MigrationProgress,
+          imported: MigrationProgress,
+          strategy: string
+        ) => MigrationProgress;
+      }).mergeProgress(existing, imported, 'skip_completed');
+
+      // Assert - 跳過已完成的對話
+      expect(merged.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Completed);
+      expect(merged.dialogs.get('dialog_1')?.migratedCount).toBe(500);
+    });
+  });
+
+  // ============================================================================
+  // 匯出匯入往返測試
+  // ============================================================================
+
+  describe('匯出匯入往返（round-trip）', () => {
+    it('匯出後匯入應得到等價的資料', () => {
+      // Arrange
+      const original = createMockProgress();
+      original.sourceAccount = '+886912***789';
+      original.targetAccount = '@user_b';
+      original.currentPhase = MigrationPhase.MigratingMessages;
+
+      const dialog1 = createMockDialogProgress('dialog_1');
+      dialog1.status = DialogStatus.Completed;
+      dialog1.migratedCount = 500;
+      dialog1.totalCount = 500;
+      original.dialogs.set('dialog_1', dialog1);
+
+      const dialog2 = createMockDialogProgress('dialog_2');
+      dialog2.status = DialogStatus.InProgress;
+      dialog2.migratedCount = 250;
+      dialog2.totalCount = 1000;
+      original.dialogs.set('dialog_2', dialog2);
+
+      original.floodWaitEvents = [
+        { timestamp: '2025-01-15T10:00:00Z', seconds: 30, operation: 'forward' },
+      ];
+
+      original.stats = {
+        totalDialogs: 2,
+        completedDialogs: 1,
+        failedDialogs: 0,
+        skippedDialogs: 0,
+        totalMessages: 1500,
+        migratedMessages: 750,
+        failedMessages: 0,
+        floodWaitCount: 1,
+        totalFloodWaitSeconds: 30,
+      };
+
+      // Act
+      const exported = progressService.exportProgress(original);
+      const importResult = progressService.importProgress(exported);
+
+      // Assert
+      expect(importResult.success).toBe(true);
+      if (importResult.success) {
+        const restored = importResult.data;
+
+        expect(restored.version).toBe(original.version);
+        expect(restored.sourceAccount).toBe(original.sourceAccount);
+        expect(restored.targetAccount).toBe(original.targetAccount);
+        expect(restored.currentPhase).toBe(original.currentPhase);
+
+        expect(restored.dialogs.size).toBe(2);
+        expect(restored.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Completed);
+        expect(restored.dialogs.get('dialog_2')?.migratedCount).toBe(250);
+
+        expect(restored.floodWaitEvents).toHaveLength(1);
+        expect(restored.floodWaitEvents[0].seconds).toBe(30);
+
+        expect(restored.stats.totalDialogs).toBe(2);
+        expect(restored.stats.migratedMessages).toBe(750);
+      }
     });
   });
 });

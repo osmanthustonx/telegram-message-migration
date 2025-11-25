@@ -20,12 +20,17 @@ import type {
   MigrationStats,
   FloodWaitEvent,
 } from '../types/models.js';
-import { DialogStatus, MigrationPhase } from '../types/enums.js';
+import { DialogStatus, MigrationPhase, MergeStrategy } from '../types/enums.js';
 
 /**
  * 支援的進度檔案版本
  */
 const SUPPORTED_VERSION = '1.0';
+
+/**
+ * 支援的匯出格式版本
+ */
+const SUPPORTED_EXPORT_VERSION = '1.0';
 
 /**
  * 進度持久化服務實作
@@ -585,18 +590,26 @@ export class ProgressService implements IProgressService {
   }
 
   /**
-   * 匯出進度為 JSON 字串
+   * 匯出進度為可分享的 JSON 字串
+   *
+   * 匯出格式包含版本號與匯出時間，方便追蹤與驗證。
    *
    * @param progress - 進度狀態
-   * @returns JSON 字串
+   * @returns JSON 字串（pretty-printed）
    */
   exportProgress(progress: MigrationProgress): string {
-    const jsonData = this.toJson(progress);
-    return JSON.stringify(jsonData, null, 2);
+    const exportData: ExportedProgress = {
+      exportVersion: SUPPORTED_EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      progress: this.toJson(progress),
+    };
+    return JSON.stringify(exportData, null, 2);
   }
 
   /**
    * 從 JSON 字串匯入進度
+   *
+   * 支援新匯出格式（含 exportVersion）與舊格式（直接是進度物件）的向後相容。
    *
    * @param data - JSON 字串
    * @returns 進度狀態或錯誤
@@ -613,8 +626,43 @@ export class ProgressService implements IProgressService {
       });
     }
 
+    if (typeof parsed !== 'object' || parsed === null) {
+      return failure({
+        type: 'INVALID_FORMAT',
+        message: 'Data must be an object',
+      });
+    }
+
+    const obj = parsed as Record<string, unknown>;
+
+    // 判斷是新格式還是舊格式
+    let progressData: unknown;
+    if ('exportVersion' in obj) {
+      // 新格式：驗證 exportVersion
+      if (obj.exportVersion !== SUPPORTED_EXPORT_VERSION) {
+        return failure({
+          type: 'INVALID_FORMAT',
+          message: `Unsupported export version: ${obj.exportVersion}. Expected: ${SUPPORTED_EXPORT_VERSION}`,
+        });
+      }
+      // 從 progress 欄位取得進度資料
+      if (!('progress' in obj) || typeof obj.progress !== 'object' || obj.progress === null) {
+        return failure({
+          type: 'INVALID_FORMAT',
+          message: 'Missing or invalid progress field in export data',
+        });
+      }
+      progressData = obj.progress;
+    } else if ('progress' in obj && typeof obj.progress === 'object' && obj.progress !== null) {
+      // 新格式但缺少 exportVersion（向後相容：假設為 1.0）
+      progressData = obj.progress;
+    } else {
+      // 舊格式：直接是進度物件
+      progressData = parsed;
+    }
+
     // 驗證 schema
-    const validationResult = this.validateSchema(parsed);
+    const validationResult = this.validateSchema(progressData);
     if (!validationResult.success) {
       const errorMessage =
         validationResult.error.type === 'INVALID_FORMAT'
@@ -627,7 +675,207 @@ export class ProgressService implements IProgressService {
     }
 
     // 將物件轉換為 MigrationProgress 格式
-    return success(this.parseProgressData(parsed as ProgressJson));
+    return success(this.parseProgressData(progressData as ProgressJson));
+  }
+
+  /**
+   * 合併進度
+   *
+   * 根據指定的策略合併既有進度與匯入進度。
+   *
+   * @param existing - 既有進度
+   * @param imported - 匯入進度
+   * @param strategy - 合併策略
+   * @returns 合併後的進度
+   */
+  mergeProgress(
+    existing: MigrationProgress,
+    imported: MigrationProgress,
+    strategy: MergeStrategy
+  ): MigrationProgress {
+    switch (strategy) {
+      case MergeStrategy.OverwriteAll:
+        return this.mergeOverwriteAll(imported);
+
+      case MergeStrategy.SkipCompleted:
+        return this.mergeSkipCompleted(existing, imported);
+
+      case MergeStrategy.MergeProgress:
+        return this.mergeBestProgress(existing, imported);
+
+      default:
+        // 預設使用 MergeProgress 策略
+        return this.mergeBestProgress(existing, imported);
+    }
+  }
+
+  // ============================================================================
+  // 合併策略實作
+  // ============================================================================
+
+  /**
+   * OverwriteAll 策略：完全覆蓋
+   */
+  private mergeOverwriteAll(imported: MigrationProgress): MigrationProgress {
+    // 直接回傳匯入的進度，更新時間戳記
+    return {
+      ...imported,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * SkipCompleted 策略：保留已完成的對話
+   */
+  private mergeSkipCompleted(
+    existing: MigrationProgress,
+    imported: MigrationProgress
+  ): MigrationProgress {
+    const mergedDialogs = new Map<string, DialogProgress>();
+
+    // 先加入既有對話（保留已完成的）
+    for (const [dialogId, dialogProgress] of existing.dialogs) {
+      mergedDialogs.set(dialogId, dialogProgress);
+    }
+
+    // 加入匯入的對話（僅加入不存在或未完成的）
+    for (const [dialogId, importedDialog] of imported.dialogs) {
+      const existingDialog = mergedDialogs.get(dialogId);
+
+      if (!existingDialog) {
+        // 不存在：直接加入
+        mergedDialogs.set(dialogId, importedDialog);
+      } else if (existingDialog.status !== DialogStatus.Completed) {
+        // 存在但未完成：使用匯入的資料
+        mergedDialogs.set(dialogId, importedDialog);
+      }
+      // 若既有的已完成，則保留既有的（不做任何事）
+    }
+
+    // 重新計算統計
+    const stats = this.recalculateStats(mergedDialogs);
+
+    return {
+      ...existing,
+      dialogs: mergedDialogs,
+      stats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * MergeProgress 策略：保留進度較多的版本
+   */
+  private mergeBestProgress(
+    existing: MigrationProgress,
+    imported: MigrationProgress
+  ): MigrationProgress {
+    const mergedDialogs = new Map<string, DialogProgress>();
+
+    // 取得所有對話 ID
+    const allDialogIds = new Set([
+      ...existing.dialogs.keys(),
+      ...imported.dialogs.keys(),
+    ]);
+
+    for (const dialogId of allDialogIds) {
+      const existingDialog = existing.dialogs.get(dialogId);
+      const importedDialog = imported.dialogs.get(dialogId);
+
+      if (!existingDialog && importedDialog) {
+        // 僅存在於匯入
+        mergedDialogs.set(dialogId, importedDialog);
+      } else if (existingDialog && !importedDialog) {
+        // 僅存在於既有
+        mergedDialogs.set(dialogId, existingDialog);
+      } else if (existingDialog && importedDialog) {
+        // 兩者都有：選擇進度較多的
+        const bestDialog = this.selectBestProgress(existingDialog, importedDialog);
+        mergedDialogs.set(dialogId, bestDialog);
+      }
+    }
+
+    // 重新計算統計
+    const stats = this.recalculateStats(mergedDialogs);
+
+    return {
+      ...existing,
+      dialogs: mergedDialogs,
+      stats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 選擇進度較多的對話
+   */
+  private selectBestProgress(
+    dialog1: DialogProgress,
+    dialog2: DialogProgress
+  ): DialogProgress {
+    // 已完成狀態優先（視為 100% 完成）
+    if (dialog1.status === DialogStatus.Completed && dialog2.status !== DialogStatus.Completed) {
+      return dialog1;
+    }
+    if (dialog2.status === DialogStatus.Completed && dialog1.status !== DialogStatus.Completed) {
+      return dialog2;
+    }
+
+    // 否則比較 migratedCount
+    if (dialog1.migratedCount >= dialog2.migratedCount) {
+      return dialog1;
+    }
+    return dialog2;
+  }
+
+  /**
+   * 重新計算統計資訊
+   */
+  private recalculateStats(dialogs: Map<string, DialogProgress>): MigrationStats {
+    let totalDialogs = 0;
+    let completedDialogs = 0;
+    let failedDialogs = 0;
+    let skippedDialogs = 0;
+    let totalMessages = 0;
+    let migratedMessages = 0;
+    let failedMessages = 0;
+
+    for (const dialog of dialogs.values()) {
+      totalDialogs++;
+      totalMessages += dialog.totalCount;
+      migratedMessages += dialog.migratedCount;
+
+      switch (dialog.status) {
+        case DialogStatus.Completed:
+          completedDialogs++;
+          break;
+        case DialogStatus.Failed:
+          failedDialogs++;
+          break;
+        case DialogStatus.Skipped:
+          skippedDialogs++;
+          break;
+      }
+
+      // 計算失敗訊息數（從 errors 中有 messageId 的項目計算）
+      for (const error of dialog.errors) {
+        if (error.messageId !== null) {
+          failedMessages++;
+        }
+      }
+    }
+
+    return {
+      totalDialogs,
+      completedDialogs,
+      failedDialogs,
+      skippedDialogs,
+      totalMessages,
+      migratedMessages,
+      failedMessages,
+      floodWaitCount: 0, // 合併時不計算 FloodWait
+      totalFloodWaitSeconds: 0,
+    };
   }
 
   // ============================================================================
@@ -790,6 +1038,18 @@ interface ProgressJson {
   dialogs: Record<string, DialogProgress>;
   floodWaitEvents?: FloodWaitEvent[];
   stats?: MigrationStats;
+}
+
+/**
+ * 匯出格式的進度資料結構（含版本與時間戳記）
+ */
+interface ExportedProgress {
+  /** 匯出格式版本 */
+  exportVersion: string;
+  /** 匯出時間 */
+  exportedAt: string;
+  /** 進度資料 */
+  progress: ProgressJson;
 }
 
 /**

@@ -76,3 +76,17 @@ export const MigrationPhase = {
 } as const;
 
 export type MigrationPhase = (typeof MigrationPhase)[keyof typeof MigrationPhase];
+
+/**
+ * 進度合併策略
+ */
+export const MergeStrategy = {
+  /** 跳過已完成的對話，保留既有進度 */
+  SkipCompleted: 'skip_completed',
+  /** 完全覆蓋，使用匯入的資料取代既有進度 */
+  OverwriteAll: 'overwrite_all',
+  /** 合併進度，保留進度較多的版本 */
+  MergeProgress: 'merge_progress',
+} as const;
+
+export type MergeStrategy = (typeof MergeStrategy)[keyof typeof MergeStrategy];
