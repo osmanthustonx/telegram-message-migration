@@ -61,6 +61,8 @@ export type {
   DialogReportEntry,
   FloodWaitSummary,
   MigrationReport,
+  MigrationReportError,
+  DetailedMigrationReport,
   // 進度回呼
   ProgressEvent,
   ProgressCallback,
@@ -78,4 +80,6 @@ export type {
   ILogService,
   IConfigLoader,
   IRateLimiter,
+  IReportService,
+  FloodWaitStats,
 } from './interfaces.js';

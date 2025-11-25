@@ -33,6 +33,8 @@ import type {
   ForwardResult,
   LogContext,
   MigrationReport,
+  DetailedMigrationReport,
+  FloodWaitEvent,
   ProgressCallback,
   RateLimiterStats,
 } from './models.js';
@@ -468,4 +470,83 @@ export interface IRateLimiter {
    * 重置統計資訊
    */
   reset(): void;
+}
+
+// ============================================================================
+// 報告服務介面
+// ============================================================================
+
+/**
+ * FloodWait 統計資訊
+ */
+export interface FloodWaitStats {
+  /** 事件總數 */
+  totalEvents: number;
+  /** 總等待時間（秒） */
+  totalWaitTime: number;
+  /** 最長等待時間（秒） */
+  longestWait: number;
+}
+
+/**
+ * 報告服務介面
+ *
+ * 追蹤 FloodWait 事件並產生遷移報告
+ *
+ * Requirements: 5.6, 7.4
+ */
+export interface IReportService {
+  /**
+   * 記錄 FloodWait 事件
+   *
+   * @param event - FloodWait 事件資訊
+   */
+  recordFloodWait(event: FloodWaitEvent): void;
+
+  /**
+   * 取得 FloodWait 統計資訊
+   *
+   * @returns FloodWait 統計
+   */
+  getFloodWaitStats(): FloodWaitStats;
+
+  /**
+   * 取得所有已記錄的 FloodWait 事件
+   *
+   * @returns FloodWait 事件列表
+   */
+  getFloodWaitEvents(): FloodWaitEvent[];
+
+  /**
+   * 清除所有已記錄的事件
+   */
+  clearEvents(): void;
+
+  /**
+   * 產生遷移報告
+   *
+   * @param progress - 遷移進度
+   * @returns 詳細遷移報告
+   */
+  generateReport(progress: MigrationProgress): DetailedMigrationReport;
+
+  /**
+   * 將報告格式化為人類可讀的文字
+   *
+   * @param report - 詳細遷移報告
+   * @returns 格式化的文字報告
+   */
+  formatReportAsText(report: DetailedMigrationReport): string;
+
+  /**
+   * 將報告儲存至檔案
+   *
+   * @param report - 詳細遷移報告
+   * @param filePath - 檔案路徑
+   * @returns 成功或錯誤
+   */
+  saveReportToFile(
+    report: DetailedMigrationReport,
+    filePath: string
+  ): Promise<Result<void, FileError>>;
 }

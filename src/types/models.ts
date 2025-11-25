@@ -410,7 +410,7 @@ export interface FloodWaitSummary {
 }
 
 /**
- * 遷移報告
+ * 遷移報告（簡易版，用於 LogService）
  */
 export interface MigrationReport {
   /** 摘要說明 */
@@ -423,6 +423,59 @@ export interface MigrationReport {
   failedDialogs: DialogReportEntry[];
   /** FloodWait 摘要 */
   floodWaitSummary: FloodWaitSummary;
+}
+
+/**
+ * 遷移報告錯誤項目
+ */
+export interface MigrationReportError {
+  /** 對話 ID */
+  dialogId: string;
+  /** 對話名稱 */
+  dialogName: string;
+  /** 錯誤訊息 */
+  error: string;
+  /** 發生時間（ISO 8601 格式） */
+  timestamp: string;
+}
+
+/**
+ * 詳細遷移報告（用於 ReportService）
+ */
+export interface DetailedMigrationReport {
+  /** 開始時間 */
+  startedAt: Date;
+  /** 完成時間 */
+  completedAt: Date;
+  /** 執行時間（秒） */
+  duration: number;
+  /** 對話總數 */
+  totalDialogs: number;
+  /** 已完成對話數 */
+  completedDialogs: number;
+  /** 失敗對話數 */
+  failedDialogs: number;
+  /** 已跳過對話數 */
+  skippedDialogs: number;
+  /** 訊息總數 */
+  totalMessages: number;
+  /** 已遷移訊息數 */
+  migratedMessages: number;
+  /** 失敗訊息數 */
+  failedMessages: number;
+  /** FloodWait 摘要 */
+  floodWaitSummary: {
+    /** 事件總數 */
+    totalEvents: number;
+    /** 總等待時間（秒） */
+    totalWaitTime: number;
+    /** 最長等待時間（秒） */
+    longestWait: number;
+    /** 事件列表 */
+    events: FloodWaitEvent[];
+  };
+  /** 錯誤清單 */
+  errors: MigrationReportError[];
 }
 
 // ============================================================================
