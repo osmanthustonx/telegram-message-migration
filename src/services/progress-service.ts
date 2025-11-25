@@ -250,6 +250,340 @@ export class ProgressService implements IProgressService {
     return dialogProgress.status;
   }
 
+  // ============================================================================
+  // Task 5.2: 對話進度追蹤方法
+  // Requirements: 6.2, 6.4, 6.5
+  // ============================================================================
+
+  /**
+   * 初始化對話進度
+   *
+   * 建立新的對話進度記錄，狀態為 pending，並更新整體統計。
+   *
+   * @param progress - 目前進度
+   * @param dialogInfo - 對話初始化資訊
+   * @returns 更新後的進度
+   */
+  initializeDialog(
+    progress: MigrationProgress,
+    dialogInfo: {
+      dialogId: string;
+      dialogName: string;
+      dialogType: import('../types/enums.js').DialogType;
+      totalCount: number;
+    }
+  ): MigrationProgress {
+    const { dialogId, dialogName, dialogType, totalCount } = dialogInfo;
+
+    // 建立新的對話進度
+    const newDialogProgress: DialogProgress = {
+      dialogId,
+      dialogName,
+      dialogType,
+      status: DialogStatus.Pending,
+      targetGroupId: null,
+      lastMessageId: null,
+      migratedCount: 0,
+      totalCount,
+      errors: [],
+      startedAt: null,
+      completedAt: null,
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, newDialogProgress);
+
+    // 更新統計資訊
+    const newStats: MigrationStats = {
+      ...progress.stats,
+      totalDialogs: progress.stats.totalDialogs + 1,
+      totalMessages: progress.stats.totalMessages + totalCount,
+    };
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      stats: newStats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 標記對話開始遷移
+   *
+   * 將對話狀態設為 in_progress，設定目標群組 ID 與開始時間。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @param targetGroupId - 目標群組 ID
+   * @returns 更新後的進度
+   */
+  markDialogStarted(
+    progress: MigrationProgress,
+    dialogId: string,
+    targetGroupId: string
+  ): MigrationProgress {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return progress;
+    }
+
+    // 建立更新後的對話進度
+    const updatedDialogProgress: DialogProgress = {
+      ...dialogProgress,
+      status: DialogStatus.InProgress,
+      targetGroupId,
+      startedAt: new Date().toISOString(),
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, updatedDialogProgress);
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 標記對話遷移失敗
+   *
+   * 將對話狀態設為 failed，記錄錯誤訊息，並更新失敗對話統計。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @param error - 錯誤訊息
+   * @returns 更新後的進度
+   */
+  markDialogFailed(
+    progress: MigrationProgress,
+    dialogId: string,
+    error: string
+  ): MigrationProgress {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return progress;
+    }
+
+    // 建立錯誤記錄
+    const errorRecord = {
+      timestamp: new Date().toISOString(),
+      messageId: null,
+      errorType: 'MIGRATION_FAILED',
+      errorMessage: error,
+    };
+
+    // 建立更新後的對話進度
+    const updatedDialogProgress: DialogProgress = {
+      ...dialogProgress,
+      status: DialogStatus.Failed,
+      errors: [...dialogProgress.errors, errorRecord],
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, updatedDialogProgress);
+
+    // 更新統計資訊
+    const newStats: MigrationStats = {
+      ...progress.stats,
+      failedDialogs: progress.stats.failedDialogs + 1,
+    };
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      stats: newStats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 標記對話跳過
+   *
+   * 將對話狀態設為 skipped，記錄跳過原因，並更新跳過對話統計。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @param reason - 跳過原因
+   * @returns 更新後的進度
+   */
+  markDialogSkipped(
+    progress: MigrationProgress,
+    dialogId: string,
+    reason: string
+  ): MigrationProgress {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return progress;
+    }
+
+    // 建立跳過記錄
+    const skipRecord = {
+      timestamp: new Date().toISOString(),
+      messageId: null,
+      errorType: 'SKIPPED',
+      errorMessage: reason,
+    };
+
+    // 建立更新後的對話進度
+    const updatedDialogProgress: DialogProgress = {
+      ...dialogProgress,
+      status: DialogStatus.Skipped,
+      errors: [...dialogProgress.errors, skipRecord],
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, updatedDialogProgress);
+
+    // 更新統計資訊
+    const newStats: MigrationStats = {
+      ...progress.stats,
+      skippedDialogs: progress.stats.skippedDialogs + 1,
+    };
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      stats: newStats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 更新訊息遷移進度
+   *
+   * 更新指定對話的最後處理訊息 ID 與已遷移訊息數。
+   * 同時更新整體遷移進度的 updatedAt 與 migratedMessages 統計。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @param lastMessageId - 最後處理的訊息 ID
+   * @param batchCount - 本批次遷移的訊息數
+   * @returns 更新後的進度
+   */
+  updateMessageProgress(
+    progress: MigrationProgress,
+    dialogId: string,
+    lastMessageId: number,
+    batchCount: number
+  ): MigrationProgress {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return progress;
+    }
+
+    // 建立更新後的對話進度
+    const updatedDialogProgress: DialogProgress = {
+      ...dialogProgress,
+      lastMessageId,
+      migratedCount: dialogProgress.migratedCount + batchCount,
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, updatedDialogProgress);
+
+    // 更新統計資訊
+    const newStats: MigrationStats = {
+      ...progress.stats,
+      migratedMessages: progress.stats.migratedMessages + batchCount,
+    };
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      stats: newStats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 新增對話錯誤記錄
+   *
+   * 將錯誤訊息新增到指定對話的 errors 陣列，並更新失敗訊息統計。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @param error - 錯誤訊息
+   * @param messageId - 相關訊息 ID（選填）
+   * @returns 更新後的進度
+   */
+  addDialogError(
+    progress: MigrationProgress,
+    dialogId: string,
+    error: string,
+    messageId?: number
+  ): MigrationProgress {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return progress;
+    }
+
+    // 建立錯誤記錄
+    const errorRecord = {
+      timestamp: new Date().toISOString(),
+      messageId: messageId ?? null,
+      errorType: 'MESSAGE_ERROR',
+      errorMessage: error,
+    };
+
+    // 建立更新後的對話進度
+    const updatedDialogProgress: DialogProgress = {
+      ...dialogProgress,
+      errors: [...dialogProgress.errors, errorRecord],
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, updatedDialogProgress);
+
+    // 更新統計資訊（若有 messageId 則增加失敗訊息計數）
+    const newStats: MigrationStats = messageId
+      ? {
+          ...progress.stats,
+          failedMessages: progress.stats.failedMessages + 1,
+        }
+      : progress.stats;
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      stats: newStats,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 取得單一對話的進度
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @returns 對話進度，若不存在回傳 undefined
+   */
+  getDialogProgress(
+    progress: MigrationProgress,
+    dialogId: string
+  ): DialogProgress | undefined {
+    return progress.dialogs.get(dialogId);
+  }
+
+  /**
+   * 取得所有對話的進度
+   *
+   * @param progress - 目前進度
+   * @returns 所有對話進度的 Map
+   */
+  getAllDialogProgress(
+    progress: MigrationProgress
+  ): Map<string, DialogProgress> {
+    return progress.dialogs;
+  }
+
   /**
    * 匯出進度為 JSON 字串
    *
@@ -456,4 +790,18 @@ interface ProgressJson {
   dialogs: Record<string, DialogProgress>;
   floodWaitEvents?: FloodWaitEvent[];
   stats?: MigrationStats;
+}
+
+/**
+ * 對話初始化資訊
+ */
+export interface DialogInitInfo {
+  /** 對話 ID */
+  dialogId: string;
+  /** 對話名稱 */
+  dialogName: string;
+  /** 對話類型 */
+  dialogType: import('../types/enums.js').DialogType;
+  /** 總訊息數 */
+  totalCount: number;
 }

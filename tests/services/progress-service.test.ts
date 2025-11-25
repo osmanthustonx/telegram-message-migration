@@ -864,3 +864,933 @@ function createMockProgressJson(): Record<string, unknown> {
     },
   };
 }
+
+// ============================================================================
+// Task 5.2: 對話進度追蹤測試
+// Requirements: 6.2, 6.4, 6.5
+// ============================================================================
+
+describe('Task 5.2: 對話進度追蹤', () => {
+  let progressService: IProgressService;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    const { ProgressService } = await import(
+      '../../src/services/progress-service.js'
+    );
+    progressService = new ProgressService();
+  });
+
+  // ============================================================================
+  // initializeDialog 方法測試
+  // ============================================================================
+
+  describe('initializeDialog 方法', () => {
+    it('應實作 initializeDialog 方法', () => {
+      expect(typeof (progressService as unknown as { initializeDialog: unknown }).initializeDialog).toBe('function');
+    });
+
+    it('應初始化對話進度為 pending 狀態', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialogInfo = {
+        dialogId: 'dialog_new',
+        dialogName: 'New Dialog',
+        dialogType: DialogType.Private,
+        totalCount: 500,
+      };
+
+      // Act
+      const updated = (progressService as unknown as {
+        initializeDialog: (
+          progress: MigrationProgress,
+          dialogInfo: { dialogId: string; dialogName: string; dialogType: DialogType; totalCount: number }
+        ) => MigrationProgress;
+      }).initializeDialog(progress, dialogInfo);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_new');
+      expect(dialogProgress).toBeDefined();
+      expect(dialogProgress?.status).toBe(DialogStatus.Pending);
+    });
+
+    it('應設定對話的總訊息數', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialogInfo = {
+        dialogId: 'dialog_new',
+        dialogName: 'New Dialog',
+        dialogType: DialogType.Group,
+        totalCount: 1500,
+      };
+
+      // Act
+      const updated = (progressService as unknown as {
+        initializeDialog: (
+          progress: MigrationProgress,
+          dialogInfo: { dialogId: string; dialogName: string; dialogType: DialogType; totalCount: number }
+        ) => MigrationProgress;
+      }).initializeDialog(progress, dialogInfo);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_new');
+      expect(dialogProgress?.totalCount).toBe(1500);
+    });
+
+    it('應設定對話名稱與類型', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialogInfo = {
+        dialogId: 'dialog_new',
+        dialogName: 'Test Channel',
+        dialogType: DialogType.Channel,
+        totalCount: 200,
+      };
+
+      // Act
+      const updated = (progressService as unknown as {
+        initializeDialog: (
+          progress: MigrationProgress,
+          dialogInfo: { dialogId: string; dialogName: string; dialogType: DialogType; totalCount: number }
+        ) => MigrationProgress;
+      }).initializeDialog(progress, dialogInfo);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_new');
+      expect(dialogProgress?.dialogName).toBe('Test Channel');
+      expect(dialogProgress?.dialogType).toBe(DialogType.Channel);
+    });
+
+    it('初始化時 migratedCount 應為 0', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialogInfo = {
+        dialogId: 'dialog_new',
+        dialogName: 'New Dialog',
+        dialogType: DialogType.Private,
+        totalCount: 100,
+      };
+
+      // Act
+      const updated = (progressService as unknown as {
+        initializeDialog: (
+          progress: MigrationProgress,
+          dialogInfo: { dialogId: string; dialogName: string; dialogType: DialogType; totalCount: number }
+        ) => MigrationProgress;
+      }).initializeDialog(progress, dialogInfo);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_new');
+      expect(dialogProgress?.migratedCount).toBe(0);
+      expect(dialogProgress?.lastMessageId).toBeNull();
+      expect(dialogProgress?.errors).toEqual([]);
+    });
+
+    it('應更新整體 stats 的 totalDialogs', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.totalDialogs = 5;
+      const dialogInfo = {
+        dialogId: 'dialog_new',
+        dialogName: 'New Dialog',
+        dialogType: DialogType.Private,
+        totalCount: 100,
+      };
+
+      // Act
+      const updated = (progressService as unknown as {
+        initializeDialog: (
+          progress: MigrationProgress,
+          dialogInfo: { dialogId: string; dialogName: string; dialogType: DialogType; totalCount: number }
+        ) => MigrationProgress;
+      }).initializeDialog(progress, dialogInfo);
+
+      // Assert
+      expect(updated.stats.totalDialogs).toBe(6);
+    });
+
+    it('應更新整體 stats 的 totalMessages', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.totalMessages = 1000;
+      const dialogInfo = {
+        dialogId: 'dialog_new',
+        dialogName: 'New Dialog',
+        dialogType: DialogType.Private,
+        totalCount: 500,
+      };
+
+      // Act
+      const updated = (progressService as unknown as {
+        initializeDialog: (
+          progress: MigrationProgress,
+          dialogInfo: { dialogId: string; dialogName: string; dialogType: DialogType; totalCount: number }
+        ) => MigrationProgress;
+      }).initializeDialog(progress, dialogInfo);
+
+      // Assert
+      expect(updated.stats.totalMessages).toBe(1500);
+    });
+  });
+
+  // ============================================================================
+  // markDialogStarted 方法測試
+  // ============================================================================
+
+  describe('markDialogStarted 方法', () => {
+    it('應實作 markDialogStarted 方法', () => {
+      expect(typeof (progressService as unknown as { markDialogStarted: unknown }).markDialogStarted).toBe('function');
+    });
+
+    it('應將對話狀態設為 in_progress', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.Pending;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogStarted: (
+          progress: MigrationProgress,
+          dialogId: string,
+          targetGroupId: string
+        ) => MigrationProgress;
+      }).markDialogStarted(progress, 'dialog_1', 'group_123');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.status).toBe(DialogStatus.InProgress);
+    });
+
+    it('應設定 targetGroupId', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.targetGroupId = null;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogStarted: (
+          progress: MigrationProgress,
+          dialogId: string,
+          targetGroupId: string
+        ) => MigrationProgress;
+      }).markDialogStarted(progress, 'dialog_1', 'group_456');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.targetGroupId).toBe('group_456');
+    });
+
+    it('應設定 startedAt 時間戳記', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.startedAt = null;
+      progress.dialogs.set('dialog_1', dialog);
+
+      const beforeTime = new Date().toISOString();
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogStarted: (
+          progress: MigrationProgress,
+          dialogId: string,
+          targetGroupId: string
+        ) => MigrationProgress;
+      }).markDialogStarted(progress, 'dialog_1', 'group_123');
+
+      // Assert
+      const afterTime = new Date().toISOString();
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.startedAt).not.toBeNull();
+      expect(dialogProgress?.startedAt! >= beforeTime).toBe(true);
+      expect(dialogProgress?.startedAt! <= afterTime).toBe(true);
+    });
+
+    it('若對話不存在應回傳原始進度', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogStarted: (
+          progress: MigrationProgress,
+          dialogId: string,
+          targetGroupId: string
+        ) => MigrationProgress;
+      }).markDialogStarted(progress, 'non_existent', 'group_123');
+
+      // Assert
+      expect(updated).toBe(progress);
+    });
+  });
+
+  // ============================================================================
+  // markDialogFailed 方法測試
+  // ============================================================================
+
+  describe('markDialogFailed 方法', () => {
+    it('應實作 markDialogFailed 方法', () => {
+      expect(typeof (progressService as unknown as { markDialogFailed: unknown }).markDialogFailed).toBe('function');
+    });
+
+    it('應將對話狀態設為 failed', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.InProgress;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogFailed: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string
+        ) => MigrationProgress;
+      }).markDialogFailed(progress, 'dialog_1', 'API Error: FLOOD_WAIT');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.status).toBe(DialogStatus.Failed);
+    });
+
+    it('應將錯誤訊息記錄到 errors 陣列', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogFailed: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string
+        ) => MigrationProgress;
+      }).markDialogFailed(progress, 'dialog_1', 'Connection timeout');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors.length).toBe(1);
+      expect(dialogProgress?.errors[0].errorMessage).toBe('Connection timeout');
+      expect(dialogProgress?.errors[0].errorType).toBe('MIGRATION_FAILED');
+    });
+
+    it('錯誤記錄應包含時間戳記', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      const beforeTime = new Date().toISOString();
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogFailed: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string
+        ) => MigrationProgress;
+      }).markDialogFailed(progress, 'dialog_1', 'Test error');
+
+      // Assert
+      const afterTime = new Date().toISOString();
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors[0].timestamp >= beforeTime).toBe(true);
+      expect(dialogProgress?.errors[0].timestamp <= afterTime).toBe(true);
+    });
+
+    it('應更新整體 stats 的 failedDialogs', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.failedDialogs = 2;
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogFailed: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string
+        ) => MigrationProgress;
+      }).markDialogFailed(progress, 'dialog_1', 'Error');
+
+      // Assert
+      expect(updated.stats.failedDialogs).toBe(3);
+    });
+
+    it('若對話不存在應回傳原始進度', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogFailed: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string
+        ) => MigrationProgress;
+      }).markDialogFailed(progress, 'non_existent', 'Error');
+
+      // Assert
+      expect(updated).toBe(progress);
+    });
+  });
+
+  // ============================================================================
+  // markDialogSkipped 方法測試
+  // ============================================================================
+
+  describe('markDialogSkipped 方法', () => {
+    it('應實作 markDialogSkipped 方法', () => {
+      expect(typeof (progressService as unknown as { markDialogSkipped: unknown }).markDialogSkipped).toBe('function');
+    });
+
+    it('應將對話狀態設為 skipped', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.Pending;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogSkipped: (
+          progress: MigrationProgress,
+          dialogId: string,
+          reason: string
+        ) => MigrationProgress;
+      }).markDialogSkipped(progress, 'dialog_1', 'User requested skip');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.status).toBe(DialogStatus.Skipped);
+    });
+
+    it('應將跳過原因記錄到 errors 陣列', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogSkipped: (
+          progress: MigrationProgress,
+          dialogId: string,
+          reason: string
+        ) => MigrationProgress;
+      }).markDialogSkipped(progress, 'dialog_1', 'No messages to migrate');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors.length).toBe(1);
+      expect(dialogProgress?.errors[0].errorMessage).toBe('No messages to migrate');
+      expect(dialogProgress?.errors[0].errorType).toBe('SKIPPED');
+    });
+
+    it('應更新整體 stats 的 skippedDialogs', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.skippedDialogs = 1;
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogSkipped: (
+          progress: MigrationProgress,
+          dialogId: string,
+          reason: string
+        ) => MigrationProgress;
+      }).markDialogSkipped(progress, 'dialog_1', 'Skip reason');
+
+      // Assert
+      expect(updated.stats.skippedDialogs).toBe(2);
+    });
+
+    it('若對話不存在應回傳原始進度', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogSkipped: (
+          progress: MigrationProgress,
+          dialogId: string,
+          reason: string
+        ) => MigrationProgress;
+      }).markDialogSkipped(progress, 'non_existent', 'Reason');
+
+      // Assert
+      expect(updated).toBe(progress);
+    });
+  });
+
+  // ============================================================================
+  // updateMessageProgress 方法測試（區別於現有的 updateDialogProgress）
+  // ============================================================================
+
+  describe('updateMessageProgress 方法', () => {
+    it('應實作 updateMessageProgress 方法', () => {
+      expect(typeof (progressService as unknown as { updateMessageProgress: unknown }).updateMessageProgress).toBe('function');
+    });
+
+    it('應更新 lastMessageId', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.lastMessageId = 100;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        updateMessageProgress: (
+          progress: MigrationProgress,
+          dialogId: string,
+          lastMessageId: number,
+          batchCount: number
+        ) => MigrationProgress;
+      }).updateMessageProgress(progress, 'dialog_1', 200, 50);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.lastMessageId).toBe(200);
+    });
+
+    it('應累加 migratedCount', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.migratedCount = 100;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        updateMessageProgress: (
+          progress: MigrationProgress,
+          dialogId: string,
+          lastMessageId: number,
+          batchCount: number
+        ) => MigrationProgress;
+      }).updateMessageProgress(progress, 'dialog_1', 200, 75);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.migratedCount).toBe(175);
+    });
+
+    it('應更新整體 stats 的 migratedMessages', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.migratedMessages = 500;
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        updateMessageProgress: (
+          progress: MigrationProgress,
+          dialogId: string,
+          lastMessageId: number,
+          batchCount: number
+        ) => MigrationProgress;
+      }).updateMessageProgress(progress, 'dialog_1', 100, 30);
+
+      // Assert
+      expect(updated.stats.migratedMessages).toBe(530);
+    });
+
+    it('應更新 MigrationProgress 的 updatedAt', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const oldUpdatedAt = progress.updatedAt;
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // 等待一小段時間
+      const waitPromise = new Promise(resolve => setTimeout(resolve, 10));
+      return waitPromise.then(() => {
+        // Act
+        const updated = (progressService as unknown as {
+          updateMessageProgress: (
+            progress: MigrationProgress,
+            dialogId: string,
+            lastMessageId: number,
+            batchCount: number
+          ) => MigrationProgress;
+        }).updateMessageProgress(progress, 'dialog_1', 100, 10);
+
+        // Assert
+        expect(updated.updatedAt > oldUpdatedAt).toBe(true);
+      });
+    });
+
+    it('若對話不存在應回傳原始進度', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const updated = (progressService as unknown as {
+        updateMessageProgress: (
+          progress: MigrationProgress,
+          dialogId: string,
+          lastMessageId: number,
+          batchCount: number
+        ) => MigrationProgress;
+      }).updateMessageProgress(progress, 'non_existent', 100, 10);
+
+      // Assert
+      expect(updated).toBe(progress);
+    });
+  });
+
+  // ============================================================================
+  // addDialogError 方法測試
+  // ============================================================================
+
+  describe('addDialogError 方法', () => {
+    it('應實作 addDialogError 方法', () => {
+      expect(typeof (progressService as unknown as { addDialogError: unknown }).addDialogError).toBe('function');
+    });
+
+    it('應新增錯誤到對話的 errors 陣列', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.errors = [];
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        addDialogError: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string,
+          messageId?: number
+        ) => MigrationProgress;
+      }).addDialogError(progress, 'dialog_1', 'Forward failed');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors.length).toBe(1);
+      expect(dialogProgress?.errors[0].errorMessage).toBe('Forward failed');
+    });
+
+    it('應保留既有錯誤並新增', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.errors = [{
+        timestamp: '2025-01-15T10:00:00Z',
+        messageId: null,
+        errorType: 'EXISTING',
+        errorMessage: 'Previous error',
+      }];
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        addDialogError: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string,
+          messageId?: number
+        ) => MigrationProgress;
+      }).addDialogError(progress, 'dialog_1', 'New error');
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors.length).toBe(2);
+      expect(dialogProgress?.errors[0].errorMessage).toBe('Previous error');
+      expect(dialogProgress?.errors[1].errorMessage).toBe('New error');
+    });
+
+    it('應包含 messageId（若提供）', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        addDialogError: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string,
+          messageId?: number
+        ) => MigrationProgress;
+      }).addDialogError(progress, 'dialog_1', 'Message forward failed', 12345);
+
+      // Assert
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors[0].messageId).toBe(12345);
+    });
+
+    it('錯誤記錄應包含時間戳記', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      const beforeTime = new Date().toISOString();
+
+      // Act
+      const updated = (progressService as unknown as {
+        addDialogError: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string,
+          messageId?: number
+        ) => MigrationProgress;
+      }).addDialogError(progress, 'dialog_1', 'Test error');
+
+      // Assert
+      const afterTime = new Date().toISOString();
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.errors[0].timestamp >= beforeTime).toBe(true);
+      expect(dialogProgress?.errors[0].timestamp <= afterTime).toBe(true);
+    });
+
+    it('應更新整體 stats 的 failedMessages', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.stats.failedMessages = 5;
+      const dialog = createMockDialogProgress('dialog_1');
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        addDialogError: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string,
+          messageId?: number
+        ) => MigrationProgress;
+      }).addDialogError(progress, 'dialog_1', 'Error', 100);
+
+      // Assert
+      expect(updated.stats.failedMessages).toBe(6);
+    });
+
+    it('若對話不存在應回傳原始進度', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const updated = (progressService as unknown as {
+        addDialogError: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string,
+          messageId?: number
+        ) => MigrationProgress;
+      }).addDialogError(progress, 'non_existent', 'Error');
+
+      // Assert
+      expect(updated).toBe(progress);
+    });
+  });
+
+  // ============================================================================
+  // getDialogProgress 方法測試
+  // ============================================================================
+
+  describe('getDialogProgress 方法', () => {
+    it('應實作 getDialogProgress 方法', () => {
+      expect(typeof (progressService as unknown as { getDialogProgress: unknown }).getDialogProgress).toBe('function');
+    });
+
+    it('應回傳指定對話的進度', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.migratedCount = 500;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const dialogProgress = (progressService as unknown as {
+        getDialogProgress: (
+          progress: MigrationProgress,
+          dialogId: string
+        ) => DialogProgress | undefined;
+      }).getDialogProgress(progress, 'dialog_1');
+
+      // Assert
+      expect(dialogProgress).toBeDefined();
+      expect(dialogProgress?.dialogId).toBe('dialog_1');
+      expect(dialogProgress?.migratedCount).toBe(500);
+    });
+
+    it('若對話不存在應回傳 undefined', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const dialogProgress = (progressService as unknown as {
+        getDialogProgress: (
+          progress: MigrationProgress,
+          dialogId: string
+        ) => DialogProgress | undefined;
+      }).getDialogProgress(progress, 'non_existent');
+
+      // Assert
+      expect(dialogProgress).toBeUndefined();
+    });
+  });
+
+  // ============================================================================
+  // getAllDialogProgress 方法測試
+  // ============================================================================
+
+  describe('getAllDialogProgress 方法', () => {
+    it('應實作 getAllDialogProgress 方法', () => {
+      expect(typeof (progressService as unknown as { getAllDialogProgress: unknown }).getAllDialogProgress).toBe('function');
+    });
+
+    it('應回傳所有對話的進度 Map', () => {
+      // Arrange
+      const progress = createMockProgress();
+      progress.dialogs.set('dialog_1', createMockDialogProgress('dialog_1'));
+      progress.dialogs.set('dialog_2', createMockDialogProgress('dialog_2'));
+      progress.dialogs.set('dialog_3', createMockDialogProgress('dialog_3'));
+
+      // Act
+      const allProgress = (progressService as unknown as {
+        getAllDialogProgress: (progress: MigrationProgress) => Map<string, DialogProgress>;
+      }).getAllDialogProgress(progress);
+
+      // Assert
+      expect(allProgress).toBeInstanceOf(Map);
+      expect(allProgress.size).toBe(3);
+      expect(allProgress.has('dialog_1')).toBe(true);
+      expect(allProgress.has('dialog_2')).toBe(true);
+      expect(allProgress.has('dialog_3')).toBe(true);
+    });
+
+    it('若沒有對話應回傳空 Map', () => {
+      // Arrange
+      const progress = createMockProgress();
+
+      // Act
+      const allProgress = (progressService as unknown as {
+        getAllDialogProgress: (progress: MigrationProgress) => Map<string, DialogProgress>;
+      }).getAllDialogProgress(progress);
+
+      // Assert
+      expect(allProgress).toBeInstanceOf(Map);
+      expect(allProgress.size).toBe(0);
+    });
+  });
+
+  // ============================================================================
+  // 狀態轉換測試
+  // ============================================================================
+
+  describe('狀態轉換流程', () => {
+    it('pending → in_progress 轉換', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.Pending;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogStarted: (
+          progress: MigrationProgress,
+          dialogId: string,
+          targetGroupId: string
+        ) => MigrationProgress;
+      }).markDialogStarted(progress, 'dialog_1', 'group_1');
+
+      // Assert
+      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.InProgress);
+    });
+
+    it('in_progress → completed 轉換', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.InProgress;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = progressService.markDialogComplete(progress, 'dialog_1');
+
+      // Assert
+      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Completed);
+    });
+
+    it('in_progress → failed 轉換', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.InProgress;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogFailed: (
+          progress: MigrationProgress,
+          dialogId: string,
+          error: string
+        ) => MigrationProgress;
+      }).markDialogFailed(progress, 'dialog_1', 'Unrecoverable error');
+
+      // Assert
+      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Failed);
+    });
+
+    it('pending → skipped 轉換', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.status = DialogStatus.Pending;
+      progress.dialogs.set('dialog_1', dialog);
+
+      // Act
+      const updated = (progressService as unknown as {
+        markDialogSkipped: (
+          progress: MigrationProgress,
+          dialogId: string,
+          reason: string
+        ) => MigrationProgress;
+      }).markDialogSkipped(progress, 'dialog_1', 'User skipped');
+
+      // Assert
+      expect(updated.dialogs.get('dialog_1')?.status).toBe(DialogStatus.Skipped);
+    });
+  });
+
+  // ============================================================================
+  // 完成時記錄完成時間
+  // ============================================================================
+
+  describe('完成時間記錄', () => {
+    it('markDialogComplete 應記錄完成時間', () => {
+      // Arrange
+      const progress = createMockProgress();
+      const dialog = createMockDialogProgress('dialog_1');
+      dialog.completedAt = null;
+      progress.dialogs.set('dialog_1', dialog);
+
+      const beforeTime = new Date().toISOString();
+
+      // Act
+      const updated = progressService.markDialogComplete(progress, 'dialog_1');
+
+      // Assert
+      const afterTime = new Date().toISOString();
+      const dialogProgress = updated.dialogs.get('dialog_1');
+      expect(dialogProgress?.completedAt).not.toBeNull();
+      expect(dialogProgress?.completedAt! >= beforeTime).toBe(true);
+      expect(dialogProgress?.completedAt! <= afterTime).toBe(true);
+    });
+  });
+});
