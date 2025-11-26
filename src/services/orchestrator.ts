@@ -222,6 +222,8 @@ export class MigrationOrchestrator {
 
       if (!groupResult.success) {
         failedDialogs++;
+        // 記錄建立群組失敗的原因
+        console.error(`[Dialog ${dialog.id}] Failed to create target group: ${groupResult.error}`);
         // 使用 ProgressService 的 markDialogFailed（若可用）
         const ps = this.progressService as ProgressService;
         if (typeof ps.markDialogFailed === 'function') {
@@ -252,6 +254,10 @@ export class MigrationOrchestrator {
 
         if (!inviteResult.success) {
           failedDialogs++;
+          const inviteError = 'message' in inviteResult.error
+            ? inviteResult.error.message
+            : inviteResult.error.type;
+          console.error(`[Dialog ${dialog.id}] Failed to invite user: ${inviteError}`);
           const ps = this.progressService as ProgressService;
           if (typeof ps.markDialogFailed === 'function') {
             progress = ps.markDialogFailed(
@@ -323,6 +329,10 @@ export class MigrationOrchestrator {
         }
       } else {
         failedDialogs++;
+        const migrateError = 'message' in migrateResult.error
+          ? migrateResult.error.message
+          : migrateResult.error.type;
+        console.error(`[Dialog ${dialog.id}] Migration failed: ${migrateError}`);
         const ps = this.progressService as ProgressService;
         if (typeof ps.markDialogFailed === 'function') {
           progress = ps.markDialogFailed(
@@ -440,16 +450,46 @@ export class MigrationOrchestrator {
       }
     }
 
-    // 建立新群組
+    // 建立新群組（支援 FloodWait 自動等待）
     const groupConfig: GroupConfig = {
       namePrefix: this.config.groupNamePrefix,
     };
 
-    const createResult = await this.groupService.createTargetGroup(
+    const maxFloodWait = this.config.maxFloodWaitSeconds ?? 300; // 預設 5 分鐘
+
+    // 嘗試建立群組，若遇到 FloodWait 且在閾值內則自動等待重試
+    let createResult = await this.groupService.createTargetGroup(
       client,
       dialog,
       groupConfig
     );
+
+    // 處理 FloodWait
+    if (!createResult.success && createResult.error.type === 'FLOOD_WAIT') {
+      const waitSeconds = createResult.error.seconds;
+
+      if (waitSeconds <= maxFloodWait) {
+        // 在閾值內，自動等待
+        console.log(
+          `[Dialog ${dialog.id}] FloodWait ${waitSeconds}s (within threshold ${maxFloodWait}s), waiting...`
+        );
+        await this.sleep(waitSeconds * 1000);
+
+        // 重試一次
+        createResult = await this.groupService.createTargetGroup(
+          client,
+          dialog,
+          groupConfig
+        );
+      } else {
+        // 超過閾值，回傳明確的錯誤訊息
+        const hours = Math.floor(waitSeconds / 3600);
+        const minutes = Math.floor((waitSeconds % 3600) / 60);
+        return failure(
+          `FloodWait ${waitSeconds}s (~${hours}h ${minutes}m) exceeds threshold ${maxFloodWait}s. Please wait and retry later.`
+        );
+      }
+    }
 
     if (createResult.success) {
       return success(createResult.data);

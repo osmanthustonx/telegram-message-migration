@@ -559,6 +559,8 @@ export interface OrchestratorConfig {
   dialogFilter?: DialogFilter;
   /** 日期範圍（選填） */
   dateRange?: DateRange;
+  /** FloodWait 自動等待的最大秒數（超過則跳過，預設 300 秒 = 5 分鐘） */
+  maxFloodWaitSeconds?: number;
 }
 
 /**

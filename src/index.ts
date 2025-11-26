@@ -96,6 +96,19 @@ async function main(): Promise<void> {
         to: options.to ?? 'none',
       });
 
+      // Debug: 顯示 dialogFilter 設定
+      if (config.dialogFilter) {
+        console.log('\n[Debug] Dialog filter settings:');
+        if (config.dialogFilter.excludeTypes) {
+          console.log(`  excludeTypes: ${config.dialogFilter.excludeTypes.join(', ')}`);
+        }
+        if (config.dialogFilter.includeTypes) {
+          console.log(`  includeTypes: ${config.dialogFilter.includeTypes.join(', ')}`);
+        }
+      } else {
+        console.log('\n[Debug] No dialog filter configured');
+      }
+
       // Set up progress display
       progressDisplay.setStartTime(Date.now());
 
@@ -151,6 +164,7 @@ async function main(): Promise<void> {
               to: options.to ? new Date(options.to) : undefined,
             }
           : config.dateRange,
+        maxFloodWaitSeconds: config.floodWaitThreshold,
       };
 
       // Create orchestrator
