@@ -9,24 +9,31 @@
 ### CLI Layer (`/src/cli/`)
 **Purpose**: 使用者介面與命令處理
 **Pattern**: 一個檔案對應一個關注點 (program, progress-display, shutdown-handler)
+**Barrel Export**: `index.ts` 統一匯出 CLI 元件
 **Example**: `program.ts` 定義 CLI 命令，`shutdown-handler.ts` 處理優雅關閉
 
 ### Services Layer (`/src/services/`)
 **Purpose**: 核心業務邏輯，每個服務專注單一職責
 **Pattern**: `{domain}-service.ts` 命名，實作對應 `I{Domain}Service` 介面
-**Example**:
+
+**Domain Services** (業務邏輯):
 - `auth-service.ts` - Telegram 驗證
 - `dialog-service.ts` - 對話列舉與過濾
 - `migration-service.ts` - 訊息遷移邏輯
 - `orchestrator.ts` - 流程協調
 
+**Infrastructure Services** (跨領域支援):
+- Pattern: 提供共用基礎設施功能，可被多個 Domain Service 依賴
+- Example: `session-manager.ts` (Session 持久化), `rate-limiter.ts` (流量控制), `config-loader.ts` (設定載入), `log-service.ts` (日誌記錄)
+
 ### Types Layer (`/src/types/`)
 **Purpose**: TypeScript 類型定義與介面
 **Pattern**: 按類別分檔 (interfaces, models, enums, errors, result)
+**Barrel Export**: `index.ts` 統一匯出所有型別，方便其他模組引用
 **Structure**:
 - `interfaces.ts` - 服務介面定義 (`I*Service`)
 - `models.ts` - 資料模型 (`*Config`, `*Info`, `*Progress`)
-- `enums.ts` - 列舉類型 (`DialogStatus`, `MigrationPhase`)
+- `enums.ts` - 列舉類型 (`DialogStatus`, `MigrationPhase`, `MergeStrategy`)
 - `errors.ts` - 錯誤類型定義
 - `result.ts` - Result 類型與工具函式
 

@@ -165,6 +165,7 @@ async function main(): Promise<void> {
             }
           : config.dateRange,
         maxFloodWaitSeconds: config.floodWaitThreshold,
+        groupCreationDelayMs: config.groupCreationDelayMs,
       };
 
       // Create orchestrator

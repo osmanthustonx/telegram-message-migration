@@ -77,6 +77,7 @@ function createMockOrchestratorConfig(
     groupNamePrefix: '[Migrated] ',
     logLevel: 'info',
     logFilePath: './test-migration-error-recovery.log',
+    groupCreationDelayMs: 0, // 測試環境不需要延遲
     ...overrides,
   };
 }

@@ -492,6 +492,14 @@ export class MigrationOrchestrator {
     }
 
     if (createResult.success) {
+      // 建立群組後的延遲（避免觸發 FloodWait）
+      const groupCreationDelay = this.config.groupCreationDelayMs ?? 60000; // 預設 1 分鐘
+      if (groupCreationDelay > 0) {
+        console.log(
+          `[Dialog ${dialog.id}] Group created successfully, waiting ${groupCreationDelay / 1000}s before continuing...`
+        );
+        await this.sleep(groupCreationDelay);
+      }
       return success(createResult.data);
     }
 

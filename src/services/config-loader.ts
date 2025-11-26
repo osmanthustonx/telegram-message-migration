@@ -24,6 +24,7 @@ const DEFAULT_CONFIG = {
   batchSize: 100,
   batchDelay: 1000,
   floodWaitThreshold: 300,
+  groupCreationDelayMs: 60000, // 1 分鐘
   groupNamePrefix: '[Migrated] ',
   logLevel: LogLevel.Info,
   logFilePath: './migration.log',
@@ -42,6 +43,7 @@ const ENV_KEYS = {
   batchSize: 'TG_BATCH_SIZE',
   batchDelay: 'TG_BATCH_DELAY',
   floodWaitThreshold: 'TG_FLOOD_WAIT_THRESHOLD',
+  groupCreationDelayMs: 'TG_GROUP_CREATION_DELAY_MS',
   groupNamePrefix: 'TG_GROUP_PREFIX',
   logLevel: 'TG_LOG_LEVEL',
   logFilePath: 'TG_LOG_FILE',
@@ -141,6 +143,7 @@ export class ConfigLoader implements IConfigLoader {
       batchSize: config.batchSize ?? DEFAULT_CONFIG.batchSize,
       batchDelay: config.batchDelay ?? DEFAULT_CONFIG.batchDelay,
       floodWaitThreshold: config.floodWaitThreshold ?? DEFAULT_CONFIG.floodWaitThreshold,
+      groupCreationDelayMs: config.groupCreationDelayMs ?? DEFAULT_CONFIG.groupCreationDelayMs,
       groupNamePrefix: config.groupNamePrefix ?? DEFAULT_CONFIG.groupNamePrefix,
       logLevel: config.logLevel ?? DEFAULT_CONFIG.logLevel,
       logFilePath: config.logFilePath ?? DEFAULT_CONFIG.logFilePath,
@@ -218,6 +221,14 @@ export class ConfigLoader implements IConfigLoader {
       const parsed = parseInt(floodWaitThresholdStr, 10);
       if (!isNaN(parsed)) {
         config.floodWaitThreshold = parsed;
+      }
+    }
+
+    const groupCreationDelayMsStr = process.env[ENV_KEYS.groupCreationDelayMs];
+    if (groupCreationDelayMsStr !== undefined) {
+      const parsed = parseInt(groupCreationDelayMsStr, 10);
+      if (!isNaN(parsed)) {
+        config.groupCreationDelayMs = parsed;
       }
     }
 

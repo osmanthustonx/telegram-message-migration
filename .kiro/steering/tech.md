@@ -91,5 +91,16 @@ constructor(config: Config, services?: OrchestratorServices) {
 
 所有服務實作對應的 `I*Service` 介面，定義於 `types/interfaces.ts`。
 
+### Barrel Export 模式
+
+模組目錄使用 `index.ts` 統一匯出，簡化跨模組引用：
+
+```typescript
+// types/index.ts - 統一匯出所有型別
+export type { Result } from './result.js';
+export { DialogType, LogLevel } from './enums.js';
+export type { DialogInfo, AppConfig } from './models.js';
+```
+
 ---
 _Document standards and patterns, not every dependency_

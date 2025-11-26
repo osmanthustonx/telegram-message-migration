@@ -230,6 +230,8 @@ export interface AppConfig {
   batchDelay: number;
   /** FloodWait 自動處理門檻（秒） */
   floodWaitThreshold: number;
+  /** 建立群組後的延遲毫秒數（避免觸發 FloodWait，預設 60000 = 1 分鐘） */
+  groupCreationDelayMs: number;
   /** 群組名稱前綴 */
   groupNamePrefix: string;
   /** 日誌等級 */
@@ -561,6 +563,8 @@ export interface OrchestratorConfig {
   dateRange?: DateRange;
   /** FloodWait 自動等待的最大秒數（超過則跳過，預設 300 秒 = 5 分鐘） */
   maxFloodWaitSeconds?: number;
+  /** 建立群組後的延遲毫秒數（避免觸發 FloodWait，預設 60000 = 1 分鐘） */
+  groupCreationDelayMs?: number;
 }
 
 /**
