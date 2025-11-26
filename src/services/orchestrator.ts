@@ -151,6 +151,7 @@ export class MigrationOrchestrator {
     let completedDialogs = 0;
     let failedDialogs = 0;
     let skippedDialogs = 0;
+    let filteredOutDialogs = 0;
     let totalMessages = 0;
     let migratedMessages = 0;
     let failedMessages = 0;
@@ -166,20 +167,23 @@ export class MigrationOrchestrator {
 
     // 套用過濾條件
     const allDialogs = dialogsResult.data;
-    const filteredDialogs = this.config.dialogFilter
+    const dialogsAfterFilter = this.config.dialogFilter
       ? this.dialogService.filterDialogs(allDialogs, this.config.dialogFilter)
       : allDialogs;
 
-    totalDialogs = filteredDialogs.length;
+    // 計算被過濾掉的對話數量
+    totalDialogs = dialogsAfterFilter.length;
+    filteredOutDialogs = allDialogs.length - dialogsAfterFilter.length;
 
     // DryRun 模式：只回傳預覽資訊
     if (isDryRun) {
-      totalMessages = filteredDialogs.reduce((sum, d) => sum + d.messageCount, 0);
+      totalMessages = dialogsAfterFilter.reduce((sum, d) => sum + d.messageCount, 0);
       return success({
         totalDialogs,
         completedDialogs: 0,
         failedDialogs: 0,
         skippedDialogs: 0,
+        filteredDialogs: filteredOutDialogs,
         totalMessages,
         migratedMessages: 0,
         failedMessages: 0,
@@ -188,7 +192,7 @@ export class MigrationOrchestrator {
     }
 
     // Step 3: 遍歷對話並執行遷移
-    for (const dialog of filteredDialogs) {
+    for (const dialog of dialogsAfterFilter) {
       totalMessages += dialog.messageCount;
 
       // 檢查是否已完成
@@ -346,6 +350,7 @@ export class MigrationOrchestrator {
       completedDialogs,
       failedDialogs,
       skippedDialogs,
+      filteredDialogs: filteredOutDialogs,
       totalMessages,
       migratedMessages,
       failedMessages,

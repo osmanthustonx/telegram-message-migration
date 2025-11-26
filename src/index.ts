@@ -185,6 +185,9 @@ async function main(): Promise<void> {
 
         console.log('\n=== Migration Summary ===');
         console.log(`Total dialogs: ${result.totalDialogs}`);
+        if (result.filteredDialogs > 0) {
+          console.log(`Filtered out: ${result.filteredDialogs} (by type filter)`);
+        }
         console.log(`Completed: ${result.completedDialogs}`);
         console.log(`Skipped: ${result.skippedDialogs}`);
         console.log(`Failed: ${result.failedDialogs}`);

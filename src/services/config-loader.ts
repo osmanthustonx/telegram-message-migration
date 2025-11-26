@@ -11,8 +11,8 @@
  */
 
 import type { IConfigLoader } from '../types/interfaces.js';
-import type { AppConfig, Result, ConfigError } from '../types/index.js';
-import { LogLevel } from '../types/index.js';
+import type { AppConfig, Result, ConfigError, DialogFilter } from '../types/index.js';
+import { LogLevel, DialogType } from '../types/index.js';
 import { success, failure } from '../types/result.js';
 
 /**
@@ -45,7 +45,21 @@ const ENV_KEYS = {
   groupNamePrefix: 'TG_GROUP_PREFIX',
   logLevel: 'TG_LOG_LEVEL',
   logFilePath: 'TG_LOG_FILE',
+  // 對話過濾條件
+  excludeTypes: 'TG_EXCLUDE_TYPES',
+  includeTypes: 'TG_INCLUDE_TYPES',
 } as const;
+
+/**
+ * 有效的對話類型值
+ */
+const VALID_DIALOG_TYPES = new Set<string>([
+  DialogType.Private,
+  DialogType.Group,
+  DialogType.Supergroup,
+  DialogType.Channel,
+  DialogType.Bot,
+]);
 
 /**
  * 有效的日誌等級值
@@ -222,7 +236,67 @@ export class ConfigLoader implements IConfigLoader {
       config.logFilePath = logFilePath;
     }
 
+    // 對話過濾條件
+    const dialogFilter = this.parseDialogFilterFromEnv();
+    if (dialogFilter !== undefined) {
+      config.dialogFilter = dialogFilter;
+    }
+
     return config;
+  }
+
+  /**
+   * 從環境變數解析對話過濾條件
+   *
+   * 支援的環境變數：
+   * - TG_EXCLUDE_TYPES: 排除的對話類型，以逗號分隔（如 "bot,channel"）
+   * - TG_INCLUDE_TYPES: 僅包含的對話類型，以逗號分隔（如 "private,group"）
+   *
+   * @returns 對話過濾條件或 undefined
+   */
+  private parseDialogFilterFromEnv(): DialogFilter | undefined {
+    const excludeTypesStr = process.env[ENV_KEYS.excludeTypes];
+    const includeTypesStr = process.env[ENV_KEYS.includeTypes];
+
+    if (excludeTypesStr === undefined && includeTypesStr === undefined) {
+      return undefined;
+    }
+
+    const filter: DialogFilter = {};
+
+    if (excludeTypesStr !== undefined && excludeTypesStr.trim() !== '') {
+      const types = this.parseDialogTypes(excludeTypesStr);
+      if (types.length > 0) {
+        filter.excludeTypes = types;
+      }
+    }
+
+    if (includeTypesStr !== undefined && includeTypesStr.trim() !== '') {
+      const types = this.parseDialogTypes(includeTypesStr);
+      if (types.length > 0) {
+        filter.includeTypes = types;
+      }
+    }
+
+    // 若無有效過濾條件則回傳 undefined
+    if (filter.excludeTypes === undefined && filter.includeTypes === undefined) {
+      return undefined;
+    }
+
+    return filter;
+  }
+
+  /**
+   * 解析對話類型字串
+   *
+   * @param typesStr - 逗號分隔的類型字串（如 "bot,channel"）
+   * @returns 有效的對話類型陣列
+   */
+  private parseDialogTypes(typesStr: string): DialogType[] {
+    return typesStr
+      .split(',')
+      .map(t => t.trim().toLowerCase())
+      .filter(t => VALID_DIALOG_TYPES.has(t)) as DialogType[];
   }
 
   /**

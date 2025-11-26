@@ -454,6 +454,84 @@ describe('ConfigLoader Service', () => {
       process.env.TG_TARGET_USER_B = '@user_b';
     });
 
+    it('應從環境變數讀取 TG_EXCLUDE_TYPES', async () => {
+      process.env.TG_EXCLUDE_TYPES = 'bot,channel';
+
+      const { ConfigLoader } = await import('../../src/services/config-loader.js');
+      const { DialogType } = await import('../../src/types/index.js');
+      const loader = new ConfigLoader();
+      const result = loader.load();
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.dialogFilter).toBeDefined();
+        expect(result.data.dialogFilter?.excludeTypes).toEqual([DialogType.Bot, DialogType.Channel]);
+      }
+    });
+
+    it('應從環境變數讀取 TG_INCLUDE_TYPES', async () => {
+      process.env.TG_INCLUDE_TYPES = 'private,group';
+
+      const { ConfigLoader } = await import('../../src/services/config-loader.js');
+      const { DialogType } = await import('../../src/types/index.js');
+      const loader = new ConfigLoader();
+      const result = loader.load();
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.dialogFilter).toBeDefined();
+        expect(result.data.dialogFilter?.includeTypes).toEqual([DialogType.Private, DialogType.Group]);
+      }
+    });
+
+    it('應同時支援 TG_EXCLUDE_TYPES 和 TG_INCLUDE_TYPES', async () => {
+      process.env.TG_EXCLUDE_TYPES = 'bot';
+      process.env.TG_INCLUDE_TYPES = 'private,group,supergroup';
+
+      const { ConfigLoader } = await import('../../src/services/config-loader.js');
+      const { DialogType } = await import('../../src/types/index.js');
+      const loader = new ConfigLoader();
+      const result = loader.load();
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.dialogFilter?.excludeTypes).toEqual([DialogType.Bot]);
+        expect(result.data.dialogFilter?.includeTypes).toEqual([
+          DialogType.Private,
+          DialogType.Group,
+          DialogType.Supergroup,
+        ]);
+      }
+    });
+
+    it('應忽略無效的對話類型', async () => {
+      process.env.TG_EXCLUDE_TYPES = 'bot,invalid,channel';
+
+      const { ConfigLoader } = await import('../../src/services/config-loader.js');
+      const { DialogType } = await import('../../src/types/index.js');
+      const loader = new ConfigLoader();
+      const result = loader.load();
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // 'invalid' 應被忽略
+        expect(result.data.dialogFilter?.excludeTypes).toEqual([DialogType.Bot, DialogType.Channel]);
+      }
+    });
+
+    it('空白的環境變數應不設定過濾條件', async () => {
+      process.env.TG_EXCLUDE_TYPES = '';
+
+      const { ConfigLoader } = await import('../../src/services/config-loader.js');
+      const loader = new ConfigLoader();
+      const result = loader.load();
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.dialogFilter).toBeUndefined();
+      }
+    });
+
     it('應支援透過 validate 設定對話過濾條件', async () => {
       const { ConfigLoader } = await import('../../src/services/config-loader.js');
       const { DialogType } = await import('../../src/types/index.js');

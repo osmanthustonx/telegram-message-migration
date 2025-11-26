@@ -575,14 +575,16 @@ export interface OrchestratorOptions {
  * Orchestrator 執行結果
  */
 export interface OrchestratorResult {
-  /** 對話總數 */
+  /** 對話總數（過濾後） */
   totalDialogs: number;
   /** 已完成對話數 */
   completedDialogs: number;
   /** 失敗對話數 */
   failedDialogs: number;
-  /** 已跳過對話數 */
+  /** 已跳過對話數（已完成的對話） */
   skippedDialogs: number;
+  /** 被過濾掉的對話數（因 excludeTypes/includeTypes 設定） */
+  filteredDialogs: number;
   /** 訊息總數 */
   totalMessages: number;
   /** 已遷移訊息數 */
