@@ -15,6 +15,7 @@ import type {
   ProgressError,
   ConfigError,
   FileError,
+  RealtimeSyncError,
 } from './errors.js';
 import type {
   DialogInfo,
@@ -37,6 +38,9 @@ import type {
   FloodWaitEvent,
   ProgressCallback,
   RateLimiterStats,
+  QueueStatus,
+  QueueProcessResult,
+  RealtimeSyncStats,
 } from './models.js';
 import type { DialogStatus, LogLevel } from './enums.js';
 
@@ -746,4 +750,83 @@ export interface IReconnectionManager {
    * @param callback - 狀態回呼函式
    */
   onReconnectStatus(callback: ReconnectStatusCallback): void;
+}
+
+// ============================================================================
+// 即時同步服務介面
+// ============================================================================
+
+/**
+ * 即時同步服務介面
+ *
+ * 管理即時訊息監聽、佇列管理與延遲轉發功能。
+ * 在遷移期間監聽來源對話的新訊息，累積至佇列，
+ * 待批次遷移完成後依序轉發至目標群組。
+ *
+ * Requirements: 1.x, 2.x, 4.x, 5.x, 6.x, 7.x
+ */
+export interface IRealtimeSyncService {
+  /**
+   * 開始監聽對話的新訊息
+   *
+   * 使用 GramJS 的 NewMessage 事件監聽指定對話，
+   * 將新訊息加入待處理佇列。
+   *
+   * @param client - TelegramClient 實例
+   * @param dialogId - 來源對話 ID
+   * @returns 成功或錯誤
+   */
+  startListening(
+    client: TelegramClient,
+    dialogId: string
+  ): Result<void, RealtimeSyncError>;
+
+  /**
+   * 停止監聯對話並清理資源
+   *
+   * 移除事件監聽器、清空佇列、移除映射資料。
+   *
+   * @param dialogId - 對話 ID
+   */
+  stopListening(dialogId: string): void;
+
+  /**
+   * 註冊來源對話與目標群組的映射
+   *
+   * 建立對話 ID 到群組 ID 的映射，供轉發時查詢目標。
+   *
+   * @param sourceDialogId - 來源對話 ID
+   * @param targetGroupId - 目標群組 ID
+   */
+  registerMapping(sourceDialogId: string, targetGroupId: string): void;
+
+  /**
+   * 處理對話的待轉發佇列
+   *
+   * 依訊息 ID 升序處理佇列中的訊息，跳過重複訊息，
+   * 轉發至對應的目標群組。
+   *
+   * @param dialogId - 對話 ID
+   * @param lastBatchMessageId - 批次遷移最後處理的訊息 ID
+   * @returns 處理結果或錯誤
+   */
+  processQueue(
+    dialogId: string,
+    lastBatchMessageId: number
+  ): Promise<Result<QueueProcessResult, RealtimeSyncError>>;
+
+  /**
+   * 取得對話的佇列狀態
+   *
+   * @param dialogId - 對話 ID
+   * @returns 佇列狀態
+   */
+  getQueueStatus(dialogId: string): QueueStatus;
+
+  /**
+   * 取得整體同步統計
+   *
+   * @returns 統計資訊
+   */
+  getStats(): RealtimeSyncStats;
 }

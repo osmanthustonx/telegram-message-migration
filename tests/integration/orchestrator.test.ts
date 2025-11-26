@@ -671,3 +671,206 @@ function createEmptyProgress(): MigrationProgress {
     },
   };
 }
+
+// ============================================================================
+// Task 6.2: 即時同步服務整合測試
+// Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 4.3
+// ============================================================================
+
+describe('MigrationOrchestrator - RealtimeSyncService Integration (Task 6.2)', () => {
+  let orchestrator: MigrationOrchestrator;
+  let mockClient: TelegramClient;
+
+  beforeEach(() => {
+    mockClient = createMockTelegramClient();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('應在服務清單中包含即時同步服務', () => {
+    const config = createMockOrchestratorConfig();
+    orchestrator = new MigrationOrchestrator(config);
+
+    const services = orchestrator.getServices();
+    expect(services.realtimeSyncService).toBeDefined();
+  });
+
+  it('應在遷移流程中呼叫即時同步服務方法', async () => {
+    const config = createMockOrchestratorConfig();
+    const mockDialogs = [createMockDialogInfo({ id: '1', messageCount: 10 })];
+
+    const mockDialogService = {
+      getAllDialogs: vi.fn().mockResolvedValue({ success: true, data: mockDialogs }),
+      filterDialogs: vi.fn().mockImplementation((dialogs) => dialogs),
+    };
+
+    const mockGroupService = {
+      createTargetGroup: vi.fn().mockResolvedValue({
+        success: true,
+        data: createMockGroupInfo({ sourceDialogId: '1' }),
+      }),
+      inviteUser: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+      canInviteUser: vi.fn().mockResolvedValue({ success: true, data: true }),
+    };
+
+    const mockMigrationService = {
+      migrateDialog: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          dialogId: '1',
+          success: true,
+          migratedMessages: 10,
+          failedMessages: 0,
+          errors: [],
+        },
+      }),
+    };
+
+    const mockRealtimeSyncService = {
+      startListening: vi.fn().mockReturnValue({ success: true }),
+      stopListening: vi.fn(),
+      registerMapping: vi.fn(),
+      processQueue: vi.fn().mockResolvedValue({
+        success: true,
+        data: { successCount: 0, failedCount: 0, skippedCount: 0, failedMessageIds: [] },
+      }),
+      getQueueStatus: vi.fn().mockReturnValue({ pending: 0, processed: 0, failed: 0 }),
+      getStats: vi.fn().mockReturnValue({
+        activeListeners: 0,
+        totalReceived: 0,
+        totalSynced: 0,
+        totalFailed: 0,
+        totalSkipped: 0,
+      }),
+    };
+
+    orchestrator = new MigrationOrchestrator(config, {
+      dialogService: mockDialogService as any,
+      groupService: mockGroupService as any,
+      migrationService: mockMigrationService as any,
+      realtimeSyncService: mockRealtimeSyncService as any,
+    });
+
+    await orchestrator.runMigration(mockClient);
+
+    // 驗證即時同步服務方法被呼叫
+    expect(mockRealtimeSyncService.startListening).toHaveBeenCalledWith(mockClient, '1');
+    expect(mockRealtimeSyncService.registerMapping).toHaveBeenCalled();
+    expect(mockRealtimeSyncService.stopListening).toHaveBeenCalledWith('1');
+  });
+
+  it('DryRun 模式應跳過即時同步操作', async () => {
+    const config = createMockOrchestratorConfig();
+    const mockDialogs = [createMockDialogInfo({ id: '1' })];
+
+    const mockDialogService = {
+      getAllDialogs: vi.fn().mockResolvedValue({ success: true, data: mockDialogs }),
+      filterDialogs: vi.fn().mockImplementation((dialogs) => dialogs),
+    };
+
+    const mockRealtimeSyncService = {
+      startListening: vi.fn().mockReturnValue({ success: true }),
+      stopListening: vi.fn(),
+      registerMapping: vi.fn(),
+      processQueue: vi.fn(),
+      getQueueStatus: vi.fn(),
+      getStats: vi.fn(),
+    };
+
+    orchestrator = new MigrationOrchestrator(config, {
+      dialogService: mockDialogService as any,
+      realtimeSyncService: mockRealtimeSyncService as any,
+    });
+
+    await orchestrator.runMigration(mockClient, { dryRun: true });
+
+    // DryRun 模式不應呼叫即時同步
+    expect(mockRealtimeSyncService.startListening).not.toHaveBeenCalled();
+    expect(mockRealtimeSyncService.stopListening).not.toHaveBeenCalled();
+  });
+
+  it('群組建立失敗時應清理即時同步資源', async () => {
+    const config = createMockOrchestratorConfig();
+    const mockDialogs = [createMockDialogInfo({ id: '1' })];
+
+    const mockDialogService = {
+      getAllDialogs: vi.fn().mockResolvedValue({ success: true, data: mockDialogs }),
+      filterDialogs: vi.fn().mockImplementation((dialogs) => dialogs),
+    };
+
+    const mockGroupService = {
+      createTargetGroup: vi.fn().mockResolvedValue({
+        success: false,
+        error: { type: 'CREATE_FAILED', message: 'Failed' },
+      }),
+    };
+
+    const mockRealtimeSyncService = {
+      startListening: vi.fn().mockReturnValue({ success: true }),
+      stopListening: vi.fn(),
+      registerMapping: vi.fn(),
+      processQueue: vi.fn(),
+      getQueueStatus: vi.fn(),
+      getStats: vi.fn(),
+    };
+
+    orchestrator = new MigrationOrchestrator(config, {
+      dialogService: mockDialogService as any,
+      groupService: mockGroupService as any,
+      realtimeSyncService: mockRealtimeSyncService as any,
+    });
+
+    await orchestrator.runMigration(mockClient);
+
+    // 驗證即時同步資源被清理
+    expect(mockRealtimeSyncService.startListening).toHaveBeenCalled();
+    expect(mockRealtimeSyncService.stopListening).toHaveBeenCalledWith('1');
+  });
+
+  it('若未提供即時同步服務則應跳過相關操作（向後相容）', async () => {
+    const config = createMockOrchestratorConfig();
+    const mockDialogs = [createMockDialogInfo({ id: '1', messageCount: 10 })];
+
+    const mockDialogService = {
+      getAllDialogs: vi.fn().mockResolvedValue({ success: true, data: mockDialogs }),
+      filterDialogs: vi.fn().mockImplementation((dialogs) => dialogs),
+    };
+
+    const mockGroupService = {
+      createTargetGroup: vi.fn().mockResolvedValue({
+        success: true,
+        data: createMockGroupInfo(),
+      }),
+      inviteUser: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+      canInviteUser: vi.fn().mockResolvedValue({ success: true, data: true }),
+    };
+
+    const mockMigrationService = {
+      migrateDialog: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          dialogId: '1',
+          success: true,
+          migratedMessages: 10,
+          failedMessages: 0,
+          errors: [],
+        },
+      }),
+    };
+
+    // 明確傳入 undefined 來停用即時同步服務
+    orchestrator = new MigrationOrchestrator(config, {
+      dialogService: mockDialogService as any,
+      groupService: mockGroupService as any,
+      migrationService: mockMigrationService as any,
+      realtimeSyncService: undefined as any,
+    });
+
+    // 應該可以正常執行不會報錯
+    const result = await orchestrator.runMigration(mockClient);
+    expect(result.success).toBe(true);
+  });
+});

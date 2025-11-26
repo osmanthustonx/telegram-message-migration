@@ -97,3 +97,22 @@ export type FileError =
   | { type: 'WRITE_FAILED'; path: string; message: string }
   | { type: 'NOT_FOUND'; path: string }
   | { type: 'PERMISSION_DENIED'; path: string };
+
+// ============================================================================
+// 即時同步服務錯誤
+// ============================================================================
+
+/**
+ * 即時同步服務錯誤類型
+ *
+ * 使用 discriminated union 定義即時同步相關錯誤：
+ * - LISTENER_INIT_FAILED: 事件監聽器初始化失敗
+ * - FORWARD_FAILED: 單一訊息轉發失敗
+ * - QUEUE_OVERFLOW: 佇列溢出（超過上限）
+ * - FLOOD_WAIT: Telegram API 速率限制
+ */
+export type RealtimeSyncError =
+  | { type: 'LISTENER_INIT_FAILED'; dialogId: string; message: string }
+  | { type: 'FORWARD_FAILED'; dialogId: string; messageId: number; message: string }
+  | { type: 'QUEUE_OVERFLOW'; dialogId: string; droppedCount: number }
+  | { type: 'FLOOD_WAIT'; seconds: number };

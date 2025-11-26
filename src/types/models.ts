@@ -592,3 +592,72 @@ export interface OrchestratorResult {
   /** 執行時間（秒） */
   duration: number;
 }
+
+// ============================================================================
+// 即時同步模型
+// ============================================================================
+
+/**
+ * 佇列中的訊息資訊
+ *
+ * 儲存新進訊息的必要資訊，包含原始訊息 ID、時間戳、
+ * GramJS Message 物件與重試計數。
+ */
+export interface QueuedMessage {
+  /** 原始訊息 ID */
+  messageId: number;
+  /** 原始時間戳 */
+  timestamp: Date;
+  /** GramJS Message 物件 */
+  message: unknown;
+  /** 重試次數（預設 0） */
+  retryCount: number;
+}
+
+/**
+ * 佇列狀態
+ *
+ * 記錄特定對話的佇列處理狀態，包含待處理、已處理與失敗的訊息數量。
+ */
+export interface QueueStatus {
+  /** 待處理訊息數 */
+  pending: number;
+  /** 已處理訊息數 */
+  processed: number;
+  /** 失敗訊息數 */
+  failed: number;
+}
+
+/**
+ * 佇列處理結果
+ *
+ * 處理佇列完成後的統計結果，包含成功數、失敗數、跳過數與失敗訊息 ID 列表。
+ */
+export interface QueueProcessResult {
+  /** 成功轉發數 */
+  successCount: number;
+  /** 失敗數 */
+  failedCount: number;
+  /** 跳過數（重複訊息） */
+  skippedCount: number;
+  /** 失敗的訊息 ID 列表 */
+  failedMessageIds: number[];
+}
+
+/**
+ * 即時同步統計
+ *
+ * 整體即時同步服務的統計資訊，追蹤活躍監聽器數與訊息處理統計。
+ */
+export interface RealtimeSyncStats {
+  /** 監聽中的對話數 */
+  activeListeners: number;
+  /** 總接收訊息數 */
+  totalReceived: number;
+  /** 總同步訊息數 */
+  totalSynced: number;
+  /** 總失敗數 */
+  totalFailed: number;
+  /** 總跳過數 */
+  totalSkipped: number;
+}

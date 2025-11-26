@@ -32,6 +32,7 @@ import type {
   IReportService,
   IRateLimiter,
   IAuthService,
+  IRealtimeSyncService,
 } from '../types/interfaces.js';
 import { DialogService } from './dialog-service.js';
 import { GroupService } from './group-service.js';
@@ -39,6 +40,7 @@ import { MigrationService } from './migration-service.js';
 import { ProgressService } from './progress-service.js';
 import { ReportService } from './report-service.js';
 import { RateLimiter } from './rate-limiter.js';
+import { RealtimeSyncService } from './realtime-sync-service.js';
 import { success, failure } from '../types/result.js';
 import { DialogStatus, MigrationPhase } from '../types/enums.js';
 
@@ -55,6 +57,8 @@ export interface OrchestratorServices {
   progressService?: IProgressService;
   reportService?: IReportService;
   rateLimiter?: IRateLimiter;
+  /** 即時同步服務（可選） */
+  realtimeSyncService?: IRealtimeSyncService;
 }
 
 /**
@@ -71,6 +75,8 @@ export class MigrationOrchestrator {
   private reportService: IReportService;
   private rateLimiter: IRateLimiter;
   private authService?: IAuthService;
+  /** 即時同步服務（可選，預設啟用） */
+  private realtimeSyncService?: IRealtimeSyncService;
 
   /**
    * 建構子
@@ -89,6 +95,11 @@ export class MigrationOrchestrator {
     this.progressService = services?.progressService ?? new ProgressService();
     this.reportService = services?.reportService ?? new ReportService();
     this.rateLimiter = services?.rateLimiter ?? new RateLimiter();
+    // 即時同步服務：若明確傳入 null 則不啟用，否則使用預設或注入的服務
+    this.realtimeSyncService =
+      services?.realtimeSyncService !== undefined
+        ? services.realtimeSyncService
+        : new RealtimeSyncService();
   }
 
   /**
@@ -105,6 +116,7 @@ export class MigrationOrchestrator {
       progressService: this.progressService,
       reportService: this.reportService,
       rateLimiter: this.rateLimiter,
+      realtimeSyncService: this.realtimeSyncService,
     };
   }
 
@@ -191,6 +203,11 @@ export class MigrationOrchestrator {
         continue;
       }
 
+      // [即時同步] 開始監聽新訊息（遷移期間累積）
+      if (this.realtimeSyncService) {
+        this.realtimeSyncService.startListening(client, dialog.id);
+      }
+
       // 取得或建立目標群組
       const groupResult = await this.getOrCreateTargetGroup(
         client,
@@ -206,11 +223,20 @@ export class MigrationOrchestrator {
         if (typeof ps.markDialogFailed === 'function') {
           progress = ps.markDialogFailed(progress, dialog.id, groupResult.error);
         }
+        // [即時同步] 清理資源
+        if (this.realtimeSyncService) {
+          this.realtimeSyncService.stopListening(dialog.id);
+        }
         await this.saveProgress(progress);
         continue;
       }
 
       const targetGroup = groupResult.data;
+
+      // [即時同步] 註冊對話-群組映射
+      if (this.realtimeSyncService) {
+        this.realtimeSyncService.registerMapping(dialog.id, targetGroup.id);
+      }
 
       // 邀請 B 帳號（若尚未進行中）
       if (status !== DialogStatus.InProgress) {
@@ -229,6 +255,10 @@ export class MigrationOrchestrator {
               dialog.id,
               `Invite failed: ${inviteResult.error.type}`
             );
+          }
+          // [即時同步] 清理資源
+          if (this.realtimeSyncService) {
+            this.realtimeSyncService.stopListening(dialog.id);
           }
           await this.saveProgress(progress);
           continue;
@@ -253,10 +283,31 @@ export class MigrationOrchestrator {
         progressCallback
       );
 
+      // 記錄批次遷移最後處理的訊息 ID
+      let lastBatchMessageId = 0;
+
       if (migrateResult.success) {
         const result = migrateResult.data;
         migratedMessages += result.migratedMessages;
         failedMessages += result.failedMessages;
+
+        // 從進度中取得最後處理的訊息 ID
+        const dialogProgress = progress.dialogs.get(dialog.id);
+        if (dialogProgress?.lastMessageId) {
+          lastBatchMessageId = dialogProgress.lastMessageId;
+        }
+
+        // [即時同步] 處理佇列（批次遷移完成後）
+        if (this.realtimeSyncService && lastBatchMessageId > 0) {
+          const queueResult = await this.realtimeSyncService.processQueue(
+            dialog.id,
+            lastBatchMessageId
+          );
+          if (queueResult.success) {
+            migratedMessages += queueResult.data.successCount;
+            failedMessages += queueResult.data.failedCount;
+          }
+        }
 
         if (result.success) {
           completedDialogs++;
@@ -276,6 +327,11 @@ export class MigrationOrchestrator {
             migrateResult.error.type
           );
         }
+      }
+
+      // [即時同步] 停止監聽並清理資源
+      if (this.realtimeSyncService) {
+        this.realtimeSyncService.stopListening(dialog.id);
       }
 
       // 儲存進度
