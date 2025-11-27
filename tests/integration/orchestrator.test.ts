@@ -388,6 +388,10 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         markDialogComplete: vi.fn().mockImplementation((p) => p),
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockReturnValue(DialogStatus.Pending),
+        getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+        incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
       };
 
       orchestrator = new MigrationOrchestrator(config, {

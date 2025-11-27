@@ -327,6 +327,43 @@ export interface IProgressService {
    * @returns 進度狀態或錯誤
    */
   importProgress(data: string): Result<MigrationProgress, ProgressError>;
+
+  // ============================================================================
+  // 每日群組建立計數管理
+  // ============================================================================
+
+  /**
+   * 取得當日群組建立計數
+   *
+   * @param progress - 目前進度
+   * @returns 當日群組建立計數
+   */
+  getDailyGroupCreationCount(progress: MigrationProgress): number;
+
+  /**
+   * 增加每日群組建立計數
+   *
+   * @param progress - 目前進度
+   * @returns 更新後的進度
+   */
+  incrementDailyGroupCreation(progress: MigrationProgress): MigrationProgress;
+
+  /**
+   * 重置每日群組建立計數
+   *
+   * @param progress - 目前進度
+   * @returns 更新後的進度
+   */
+  resetDailyGroupCreation(progress: MigrationProgress): MigrationProgress;
+
+  /**
+   * 檢查是否已達每日群組建立上限
+   *
+   * @param progress - 目前進度
+   * @param limit - 每日上限
+   * @returns 是否已達上限
+   */
+  isDailyGroupLimitReached(progress: MigrationProgress, limit: number): boolean;
 }
 
 // ============================================================================

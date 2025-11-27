@@ -58,7 +58,8 @@ export type MigrationError =
   | { type: 'INVITE_FAILED'; dialogId: string; message: string }
   | { type: 'FORWARD_FAILED'; dialogId: string; messageIds: number[]; message: string }
   | { type: 'FLOOD_WAIT'; seconds: number }
-  | { type: 'ABORTED'; reason: string };
+  | { type: 'ABORTED'; reason: string }
+  | { type: 'DAILY_LIMIT_REACHED'; count: number; limit: number };
 
 // ============================================================================
 // 進度服務錯誤

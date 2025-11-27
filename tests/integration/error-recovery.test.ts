@@ -176,6 +176,10 @@ describe('Error Recovery (Task 11.2)', () => {
         getDialogProgress: vi.fn().mockImplementation((_, dialogId) => {
           return existingProgress.dialogs.get(dialogId);
         }),
+        getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+        incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
       };
 
       const mockGroupService = {
@@ -236,6 +240,10 @@ describe('Error Recovery (Task 11.2)', () => {
         getDialogStatus: vi.fn().mockImplementation((_, dialogId) => {
           return existingProgress.dialogs.get(dialogId)?.status || DialogStatus.Pending;
         }),
+        getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+        incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
       };
 
       const mockGroupService = {
@@ -302,6 +310,10 @@ describe('Error Recovery (Task 11.2)', () => {
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockReturnValue(DialogStatus.InProgress),
         getDialogProgress: vi.fn().mockReturnValue(existingProgress.dialogs.get('1')),
+        getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+        incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
       };
 
       const mockGroupService = {
@@ -708,6 +720,10 @@ describe('Error Recovery (Task 11.2)', () => {
         markDialogFailed: vi.fn().mockImplementation((p) => p),
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockReturnValue(DialogStatus.Pending),
+        getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+        incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+        isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
       };
 
       orchestrator = new MigrationOrchestrator(config, {

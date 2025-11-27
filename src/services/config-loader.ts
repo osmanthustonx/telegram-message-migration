@@ -25,6 +25,7 @@ const DEFAULT_CONFIG = {
   batchDelay: 1000,
   floodWaitThreshold: 300,
   groupCreationDelayMs: 60000, // 1 分鐘
+  dailyGroupLimit: 50, // Telegram 每日群組建立上限
   groupNamePrefix: '[Migrated] ',
   logLevel: LogLevel.Info,
   logFilePath: './migration.log',
@@ -44,6 +45,7 @@ const ENV_KEYS = {
   batchDelay: 'TG_BATCH_DELAY',
   floodWaitThreshold: 'TG_FLOOD_WAIT_THRESHOLD',
   groupCreationDelayMs: 'TG_GROUP_CREATION_DELAY_MS',
+  dailyGroupLimit: 'TG_DAILY_GROUP_LIMIT',
   groupNamePrefix: 'TG_GROUP_PREFIX',
   logLevel: 'TG_LOG_LEVEL',
   logFilePath: 'TG_LOG_FILE',
@@ -144,6 +146,7 @@ export class ConfigLoader implements IConfigLoader {
       batchDelay: config.batchDelay ?? DEFAULT_CONFIG.batchDelay,
       floodWaitThreshold: config.floodWaitThreshold ?? DEFAULT_CONFIG.floodWaitThreshold,
       groupCreationDelayMs: config.groupCreationDelayMs ?? DEFAULT_CONFIG.groupCreationDelayMs,
+      dailyGroupLimit: config.dailyGroupLimit ?? DEFAULT_CONFIG.dailyGroupLimit,
       groupNamePrefix: config.groupNamePrefix ?? DEFAULT_CONFIG.groupNamePrefix,
       logLevel: config.logLevel ?? DEFAULT_CONFIG.logLevel,
       logFilePath: config.logFilePath ?? DEFAULT_CONFIG.logFilePath,
@@ -229,6 +232,14 @@ export class ConfigLoader implements IConfigLoader {
       const parsed = parseInt(groupCreationDelayMsStr, 10);
       if (!isNaN(parsed)) {
         config.groupCreationDelayMs = parsed;
+      }
+    }
+
+    const dailyGroupLimitStr = process.env[ENV_KEYS.dailyGroupLimit];
+    if (dailyGroupLimitStr !== undefined) {
+      const parsed = parseInt(dailyGroupLimitStr, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        config.dailyGroupLimit = parsed;
       }
     }
 

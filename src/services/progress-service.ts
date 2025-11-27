@@ -19,6 +19,7 @@ import type {
   DialogProgress,
   MigrationStats,
   FloodWaitEvent,
+  DailyGroupCreation,
 } from '../types/models.js';
 import { DialogStatus, MigrationPhase, MergeStrategy } from '../types/enums.js';
 
@@ -589,6 +590,100 @@ export class ProgressService implements IProgressService {
     return progress.dialogs;
   }
 
+  // ============================================================================
+  // 每日群組建立計數管理
+  // ============================================================================
+
+  /**
+   * 取得今日的日期字串（YYYY-MM-DD 格式）
+   */
+  private getTodayDateString(): string {
+    const now = new Date();
+    // toISOString 格式為 YYYY-MM-DDTHH:mm:ss.sssZ，split('T')[0] 必定存在
+    const dateStr = now.toISOString().split('T')[0];
+    return dateStr as string;
+  }
+
+  /**
+   * 取得當日群組建立計數
+   *
+   * 若日期已過期（非今日），則回傳 0。
+   *
+   * @param progress - 目前進度
+   * @returns 當日群組建立計數
+   */
+  getDailyGroupCreationCount(progress: MigrationProgress): number {
+    const today = this.getTodayDateString();
+    const dailyData = progress.dailyGroupCreation;
+
+    if (!dailyData || dailyData.date !== today) {
+      return 0;
+    }
+
+    return dailyData.count;
+  }
+
+  /**
+   * 增加每日群組建立計數
+   *
+   * 若日期已過期（非今日），則重置計數為 1。
+   *
+   * @param progress - 目前進度
+   * @returns 更新後的進度
+   */
+  incrementDailyGroupCreation(progress: MigrationProgress): MigrationProgress {
+    const today = this.getTodayDateString();
+    const currentData = progress.dailyGroupCreation;
+
+    let newCount: number;
+    if (!currentData || currentData.date !== today) {
+      // 新的一天，重置計數
+      newCount = 1;
+    } else {
+      // 同一天，增加計數
+      newCount = currentData.count + 1;
+    }
+
+    return {
+      ...progress,
+      dailyGroupCreation: {
+        date: today,
+        count: newCount,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 重置每日群組建立計數
+   *
+   * 將計數重置為 0（保持今日日期）。
+   *
+   * @param progress - 目前進度
+   * @returns 更新後的進度
+   */
+  resetDailyGroupCreation(progress: MigrationProgress): MigrationProgress {
+    return {
+      ...progress,
+      dailyGroupCreation: {
+        date: this.getTodayDateString(),
+        count: 0,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 檢查是否達到每日群組建立限制
+   *
+   * @param progress - 目前進度
+   * @param limit - 每日限制數量
+   * @returns 是否達到限制
+   */
+  isDailyGroupLimitReached(progress: MigrationProgress, limit: number): boolean {
+    return this.getDailyGroupCreationCount(progress) >= limit;
+  }
+
   /**
    * 匯出進度為可分享的 JSON 字串
    *
@@ -998,6 +1093,7 @@ export class ProgressService implements IProgressService {
       dialogs: dialogsMap,
       floodWaitEvents,
       stats,
+      dailyGroupCreation: data.dailyGroupCreation,
     };
   }
 
@@ -1021,6 +1117,7 @@ export class ProgressService implements IProgressService {
       dialogs: dialogsObj,
       floodWaitEvents: progress.floodWaitEvents,
       stats: progress.stats,
+      dailyGroupCreation: progress.dailyGroupCreation,
     };
   }
 }
@@ -1038,6 +1135,7 @@ interface ProgressJson {
   dialogs: Record<string, DialogProgress>;
   floodWaitEvents?: FloodWaitEvent[];
   stats?: MigrationStats;
+  dailyGroupCreation?: DailyGroupCreation;
 }
 
 /**

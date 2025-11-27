@@ -43,6 +43,7 @@ import { RateLimiter } from './rate-limiter.js';
 import { RealtimeSyncService } from './realtime-sync-service.js';
 import { success, failure } from '../types/result.js';
 import { DialogStatus, MigrationPhase } from '../types/enums.js';
+import { Api } from 'telegram';
 
 /**
  * 服務依賴注入介面
@@ -191,6 +192,9 @@ export class MigrationOrchestrator {
       });
     }
 
+    // 每日群組建立限制
+    const dailyGroupLimit = this.config.dailyGroupLimit ?? 50;
+
     // Step 3: 遍歷對話並執行遷移
     for (const dialog of dialogsAfterFilter) {
       totalMessages += dialog.messageCount;
@@ -205,6 +209,32 @@ export class MigrationOrchestrator {
           migratedMessages += dialogProgress.migratedCount;
         }
         continue;
+      }
+
+      // 檢查每日群組建立限制（僅在需要建立新群組時檢查）
+      const needsNewGroup = status !== DialogStatus.InProgress;
+      if (needsNewGroup) {
+        const ps = this.progressService as ProgressService;
+        if (ps.isDailyGroupLimitReached(progress, dailyGroupLimit)) {
+          // 達到每日限制，發送通知並停止
+          const currentCount = ps.getDailyGroupCreationCount(progress);
+          console.log(
+            `\n⚠️ 已達每日群組建立上限（${currentCount}/${dailyGroupLimit}）`
+          );
+
+          // 發送 Telegram 通知到 Saved Messages
+          await this.sendDailyLimitNotification(
+            client,
+            currentCount,
+            dailyGroupLimit,
+            completedDialogs,
+            dialogsAfterFilter.length - completedDialogs - skippedDialogs
+          );
+
+          // 儲存進度並停止
+          await this.saveProgress(progress);
+          break;
+        }
       }
 
       // [即時同步] 開始監聽新訊息（遷移期間累積）
@@ -238,6 +268,14 @@ export class MigrationOrchestrator {
       }
 
       const targetGroup = groupResult.data;
+
+      // 如果是新建立的群組，增加每日計數
+      if (needsNewGroup) {
+        const ps = this.progressService as ProgressService;
+        progress = ps.incrementDailyGroupCreation(progress);
+        const currentCount = ps.getDailyGroupCreationCount(progress);
+        console.log(`[Daily Limit] Group created: ${currentCount}/${dailyGroupLimit}`);
+      }
 
       // [即時同步] 註冊對話-群組映射
       if (this.realtimeSyncService) {
@@ -576,5 +614,46 @@ export class MigrationOrchestrator {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 發送每日限制通知到 Saved Messages
+   *
+   * @param client - Telegram 客戶端
+   * @param currentCount - 當前已建立群組數
+   * @param limit - 每日上限
+   * @param completedDialogs - 已完成的對話數
+   * @param pendingDialogs - 待處理的對話數
+   */
+  private async sendDailyLimitNotification(
+    client: TelegramClient,
+    currentCount: number,
+    limit: number,
+    completedDialogs: number,
+    pendingDialogs: number
+  ): Promise<void> {
+    const message = [
+      '⚠️ 遷移暫停通知',
+      '',
+      `已達每日群組建立上限（${currentCount}/${limit}）`,
+      `已完成：${completedDialogs} 個對話`,
+      `待處理：${pendingDialogs} 個對話`,
+      '',
+      '請於明日重新執行 `npm start` 繼續遷移。',
+    ].join('\n');
+
+    try {
+      await client.invoke(
+        new Api.messages.SendMessage({
+          peer: 'me',
+          message,
+          noWebpage: true,
+        })
+      );
+      console.log('[Daily Limit] 已發送通知到 Saved Messages');
+    } catch (error) {
+      // 發送通知失敗不應中斷遷移流程
+      console.error('[Daily Limit] 發送通知失敗:', error);
+    }
   }
 }

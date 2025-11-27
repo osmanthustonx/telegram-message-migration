@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "startedAt": "2025-11-25T16:22:02.107Z",
-  "updatedAt": "2025-11-26T09:21:07.519Z",
+  "updatedAt": "2025-11-27T06:01:35.510Z",
   "sourceAccount": "",
   "targetAccount": "",
   "currentPhase": "idle",
@@ -17,5 +17,9 @@
     "failedMessages": 0,
     "floodWaitCount": 0,
     "totalFloodWaitSeconds": 0
+  },
+  "dailyGroupCreation": {
+    "date": "2025-11-27",
+    "count": 30
   }
 }

@@ -171,6 +171,16 @@ export interface MigrationStats {
 }
 
 /**
+ * 每日群組建立追蹤資訊
+ */
+export interface DailyGroupCreation {
+  /** 日期（YYYY-MM-DD 格式） */
+  date: string;
+  /** 當日已建立群組數量 */
+  count: number;
+}
+
+/**
  * 完整遷移進度狀態
  */
 export interface MigrationProgress {
@@ -192,6 +202,8 @@ export interface MigrationProgress {
   floodWaitEvents: FloodWaitEvent[];
   /** 統計資訊 */
   stats: MigrationStats;
+  /** 每日群組建立追蹤（選填，用於限制每日建立數量） */
+  dailyGroupCreation?: DailyGroupCreation;
 }
 
 // ============================================================================
@@ -232,6 +244,8 @@ export interface AppConfig {
   floodWaitThreshold: number;
   /** 建立群組後的延遲毫秒數（避免觸發 FloodWait，預設 60000 = 1 分鐘） */
   groupCreationDelayMs: number;
+  /** 每日群組建立上限（預設 50） */
+  dailyGroupLimit: number;
   /** 群組名稱前綴 */
   groupNamePrefix: string;
   /** 日誌等級 */
@@ -565,6 +579,8 @@ export interface OrchestratorConfig {
   maxFloodWaitSeconds?: number;
   /** 建立群組後的延遲毫秒數（避免觸發 FloodWait，預設 60000 = 1 分鐘） */
   groupCreationDelayMs?: number;
+  /** 每日群組建立上限（預設 50） */
+  dailyGroupLimit?: number;
 }
 
 /**
