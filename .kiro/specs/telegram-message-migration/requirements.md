@@ -1,114 +1,140 @@
 # Requirements Document
 
-## Project Description (Input)
-我有個Telegram的A帳號,想要把裡面所有的聊天訊息,包含機器人,群組,個人訊息,Channel等等的所有每個訊息都遷移到B帳號裡面。 那遷移的方式就有點像是forward,就是forward訊息那種方式。 但是每一個聊天室,像是什麼Channel啊,Private Channel,Private Chat啊,Group Chat啊,等等等等的,每一個Chat的訊息都是上千上萬則。 那我該用什麼樣的方式可以有效的把這些訊息forward到B帳號裡面?比較希望「A的chat(個人/群組) → 對應B那邊create多個chat group + forward」。整體流程設計
-
-你要做的其實是這幾步：
-
-用 A 帳號 登入（Userbot，不是 Bot token）
-
-抓出 A 的所有 dialogs（個人、群組、頻道）
-
-為每個 dialog 建立一個新群組（group / megagroup），並讓 B 在群組中
-
-把該 dialog 的所有訊息，從 A 那裡 forward 到「對應的新群組」
-
-做好 FloodWait（節流）處理、斷點續傳等機制
-
-⚠️ 建群組的動作技術上是 A 在創建群組，然後把 B 加進去，所以 B 也會看到這些群。
-
-整個技術採用 GramJS
-
 ## Introduction
-本文件定義 Telegram 訊息遷移工具的功能需求。此工具使用 GramJS 函式庫，實現將 A 帳號的所有對話（包含私人聊天、群組、頻道、機器人對話）遷移至 B 帳號可存取的新群組中。遷移採用訊息轉發（forward）方式，並具備流量控制與斷點續傳機制，確保大量訊息能穩定且完整地遷移。
+
+本專案旨在將現有的 JS/GramJS Telegram 訊息轉發腳本打包成 Mac 可執行檔，讓使用者能夠透過圖形或命令列介面輸入必要資訊（API ID、API Hash、帳號登入憑證、目標帳號 B），自動執行帳號 A 到帳號 B 的訊息遷移作業。整個流程包含驗證登入、對話列舉、群組建立、批次訊息轉發、斷點續傳及流量控制，全部在單一可執行檔內完成。
 
 ## Requirements
 
-### Requirement 1: 帳號驗證與連線
-**Objective:** 作為使用者，我希望能以 Userbot 方式登入 A 帳號，以便取得完整的 API 存取權限進行訊息遷移。
+### Requirement 1: 使用者驗證與帳號登入
+
+**Objective:** 身為使用者，我希望能夠輸入 Telegram API 憑證並完成雙帳號登入，以便開始訊息遷移作業
 
 #### Acceptance Criteria
-1. When 使用者提供 API ID、API Hash 及電話號碼, the Migration Service shall 初始化 GramJS TelegramClient 並發送驗證碼請求
-2. When 使用者輸入正確的驗證碼, the Migration Service shall 完成登入並建立已驗證的 session
-3. If 驗證碼輸入錯誤, the Migration Service shall 顯示錯誤訊息並允許重新輸入
-4. If 帳號啟用兩步驟驗證, the Migration Service shall 提示使用者輸入 2FA 密碼
-5. When 登入成功, the Migration Service shall 儲存 session 資訊以供後續重新連線使用
-6. If 網路連線中斷, the Migration Service shall 自動嘗試重新連線最多 3 次
 
-### Requirement 2: 對話探索與列舉
-**Objective:** 作為使用者，我希望工具能自動抓取 A 帳號的所有對話，以便了解需要遷移的完整範圍。
+1. When 使用者啟動應用程式，the Migration Tool shall 提示輸入 API ID 與 API Hash
+2. When 使用者輸入 API 憑證後，the Migration Tool shall 驗證憑證格式正確性
+3. When API 憑證驗證通過，the Migration Tool shall 引導使用者登入帳號 A（來源帳號）
+4. When 帳號 A 登入成功，the Migration Tool shall 引導使用者登入或指定帳號 B（目標帳號）
+5. If 帳號登入需要兩步驟驗證碼，then the Migration Tool shall 提示使用者輸入 2FA 密碼
+6. If API 憑證格式錯誤或無效，then the Migration Tool shall 顯示明確錯誤訊息並允許重新輸入
+7. If 帳號登入失敗（如驗證碼錯誤或帳號被封鎖），then the Migration Tool shall 顯示具體失敗原因
+8. The Migration Tool shall 安全儲存 session 資料以支援後續斷點續傳
 
-#### Acceptance Criteria
-1. When 登入成功後, the Migration Service shall 使用 GetDialogsRequest 取得所有對話清單
-2. The Migration Service shall 支援以下對話類型：私人聊天、群組、超級群組、頻道、機器人對話
-3. When 對話數量超過單次 API 回應上限, the Migration Service shall 使用分頁機制完整取得所有對話
-4. The Migration Service shall 為每個對話記錄：對話 ID、對話類型、對話名稱、訊息總數
-5. When 對話列舉完成, the Migration Service shall 自動開始遷移流程，無需使用者確認
+### Requirement 2: 對話列舉與過濾
 
-### Requirement 3: 目標群組建立
-**Objective:** 作為使用者，我希望工具能為每個原始對話建立對應的新群組，並將 B 帳號加入成員，以便接收遷移的訊息。
+**Objective:** 身為使用者，我希望能夠查看並選擇要遷移的對話，以便精確控制遷移範圍
 
 #### Acceptance Criteria
-1. When 開始遷移某個對話, the Migration Service shall 以 A 帳號建立對應的新群組
-2. The Migration Service shall 使用原始對話名稱加上識別前綴作為新群組名稱
-3. When 新群組建立成功, the Migration Service shall 將 B 帳號加入該群組作為成員
-4. If B 帳號的使用者名稱或電話號碼未設定, the Migration Service shall 提示錯誤並中止該對話的遷移
-5. When 群組建立完成, the Migration Service shall 記錄原始對話與新群組的對應關係
-6. If 群組建立失敗, the Migration Service shall 記錄錯誤並繼續處理下一個對話
 
-### Requirement 4: 訊息轉發與遷移
-**Objective:** 作為使用者，我希望工具能將原始對話的所有訊息轉發至對應的新群組，以便 B 帳號能存取完整的歷史訊息。
+1. When 雙帳號登入成功，the Migration Tool shall 自動列舉帳號 A 的所有對話
+2. When 對話列舉完成，the Migration Tool shall 顯示對話清單（包含對話名稱、類型、訊息數量）
+3. When 使用者指定對話 ID 過濾條件，the Migration Tool shall 僅列出符合條件的對話
+4. When 使用者指定對話類型過濾（私聊、群組、頻道），the Migration Tool shall 僅列出該類型對話
+5. When 使用者指定日期範圍過濾，the Migration Tool shall 僅包含該時間範圍內有訊息的對話
+6. The Migration Tool shall 支援同時套用多個過濾條件
+7. While 對話列舉進行中，the Migration Tool shall 顯示載入進度
 
-#### Acceptance Criteria
-1. When 目標群組建立完成, the Migration Service shall 開始從原始對話取得訊息
-2. The Migration Service shall 使用 GetHistoryRequest 按時間順序取得訊息
-3. When 取得訊息後, the Migration Service shall 使用 ForwardMessagesRequest 轉發至對應群組
-4. The Migration Service shall 支援批次轉發，每批次最多 100 則訊息
-5. When 訊息包含媒體檔案, the Migration Service shall 確保媒體內容完整轉發
-6. The Migration Service shall 保留原始訊息的發送者資訊與時間戳記
-7. When 單一對話遷移完成, the Migration Service shall 輸出該對話的遷移統計資訊
+### Requirement 3: 目標群組建立與管理
 
-### Requirement 5: 流量控制與節流機制
-**Objective:** 作為使用者，我希望工具能妥善處理 Telegram API 的流量限制，以避免帳號被暫時封鎖。
+**Objective:** 身為使用者，我希望系統能自動為每個來源對話建立對應的目標群組，以便集中存放遷移後的訊息
 
 #### Acceptance Criteria
-1. The Migration Service shall 在每批次轉發後等待設定的間隔時間
-2. When 收到 FloodWaitError, the Migration Service shall 自動等待錯誤指定的秒數後重試
-3. While FloodWait 等待中, the Migration Service shall 顯示倒數計時資訊
-4. The Migration Service shall 支援使用者設定的轉發速率上限
-5. If 連續發生多次 FloodWait, the Migration Service shall 自動降低轉發速率
-6. The Migration Service shall 記錄所有 FloodWait 事件供後續分析
 
-### Requirement 6: 斷點續傳機制
-**Objective:** 作為使用者，我希望工具能記錄遷移進度並支援從中斷點繼續，以便在大量訊息遷移過程中不會因中斷而需要重新開始。
+1. When 使用者確認要遷移的對話清單，the Migration Tool shall 為每個來源對話建立對應的目標群組
+2. When 建立目標群組時，the Migration Tool shall 使用來源對話名稱作為群組名稱（加上可識別前綴或後綴）
+3. When 目標群組建立成功，the Migration Tool shall 自動邀請帳號 B 加入該群組
+4. If 帳號 B 成功加入群組，then the Migration Tool shall 將帳號 B 設為群組管理員
+5. If 群組建立失敗（如達到每日建立上限），then the Migration Tool shall 記錄失敗原因並於限制解除後重試
+6. If 同名群組已存在，then the Migration Tool shall 詢問使用者選擇覆寫、跳過或重新命名
+7. The Migration Tool shall 記錄來源對話與目標群組的對應關係
 
-#### Acceptance Criteria
-1. The Migration Service shall 維護持久化的進度檔案記錄遷移狀態
-2. When 成功轉發一批訊息, the Migration Service shall 更新進度檔案記錄最後處理的訊息 ID
-3. When 程式重新啟動, the Migration Service shall 讀取進度檔案並從上次中斷點繼續
-4. The Migration Service shall 為每個對話獨立記錄進度狀態
-5. When 某對話遷移完成, the Migration Service shall 將該對話標記為已完成
-6. If 進度檔案損毀, the Migration Service shall 提供從頭開始或跳過已處理對話的選項
-7. The Migration Service shall 支援匯出與匯入進度狀態
+### Requirement 4: 批次訊息轉發
 
-### Requirement 7: 錯誤處理與日誌
-**Objective:** 作為使用者，我希望工具能妥善處理各種錯誤情況並提供詳細日誌，以便追蹤問題與確認遷移結果。
+**Objective:** 身為使用者，我希望系統能批次轉發訊息到目標群組，以便高效完成大量訊息遷移
 
 #### Acceptance Criteria
-1. The Migration Service shall 記錄所有操作的詳細日誌包含時間戳記
-2. When 發生錯誤, the Migration Service shall 記錄錯誤類型、錯誤訊息及相關上下文
-3. If 單一訊息轉發失敗, the Migration Service shall 記錄該訊息並繼續處理後續訊息
-4. When 遷移完成, the Migration Service shall 輸出完整的遷移報告
-5. The Migration Service shall 支援不同的日誌等級：DEBUG、INFO、WARN、ERROR
-6. The Migration Service shall 將日誌同時輸出至主控台與檔案
 
-### Requirement 8: 使用者介面與設定
-**Objective:** 作為使用者，我希望工具提供清晰的操作介面與彈性的設定選項，以便根據需求調整遷移行為。
+1. When 目標群組準備就緒，the Migration Tool shall 開始批次轉發來源對話的訊息
+2. When 轉發訊息時，the Migration Tool shall 保留訊息的原始時間順序
+3. When 轉發訊息時，the Migration Tool shall 使用 Telegram 原生 forward 功能以保留訊息來源資訊
+4. While 批次轉發進行中，the Migration Tool shall 顯示目前進度（已轉發數量/總數量、預估剩餘時間）
+5. The Migration Tool shall 支援設定每批次轉發的訊息數量
+6. The Migration Tool shall 支援設定批次間的等待間隔
+7. If 單則訊息轉發失敗，then the Migration Tool shall 記錄失敗訊息 ID 並繼續處理後續訊息
+
+### Requirement 5: 斷點續傳
+
+**Objective:** 身為使用者，我希望遷移進度能被保存，以便在中斷後能從上次位置繼續
 
 #### Acceptance Criteria
-1. The Migration Service shall 提供命令列介面進行操作
-2. The Migration Service shall 支援設定檔定義常用參數
-3. When 遷移進行中, the Migration Service shall 顯示即時進度資訊包含：當前對話、已處理訊息數、預估剩餘時間
-4. The Migration Service shall 支援指定僅遷移特定對話
-5. The Migration Service shall 支援設定訊息日期範圍過濾
-6. When 使用者按下中斷鍵, the Migration Service shall 安全地儲存進度並結束程式
+
+1. The Migration Tool shall 持久化儲存當前遷移進度（已處理的對話、已轉發的訊息 ID）
+2. When 遷移過程因任何原因中斷，the Migration Tool shall 在下次啟動時自動偵測未完成的遷移任務
+3. When 偵測到未完成的遷移任務，the Migration Tool shall 提示使用者選擇繼續或重新開始
+4. When 使用者選擇繼續，the Migration Tool shall 從上次中斷位置開始繼續遷移
+5. When 遷移任務完成，the Migration Tool shall 清除該任務的進度記錄
+6. The Migration Tool shall 每完成一個批次後自動儲存進度
+
+### Requirement 6: 流量控制與速率限制處理
+
+**Objective:** 身為使用者，我希望系統能智慧處理 Telegram API 限制，以便確保遷移過程穩定不被封鎖
+
+#### Acceptance Criteria
+
+1. When 收到 Telegram FloodWait 錯誤，the Migration Tool shall 自動暫停指定秒數後繼續
+2. When 遇到 FloodWait，the Migration Tool shall 顯示等待時間與預計恢復時間
+3. The Migration Tool shall 自適應調整請求速率以減少觸發 FloodWait 的機率
+4. The Migration Tool shall 設定請求速率上限以符合 Telegram API 使用規範
+5. While 處於 FloodWait 等待期間，the Migration Tool shall 顯示倒數計時
+6. If 連續多次觸發 FloodWait，then the Migration Tool shall 降低請求速率並記錄警告日誌
+
+### Requirement 7: 即時訊息同步
+
+**Objective:** 身為使用者，我希望在遷移期間新收到的訊息也能被同步，以便確保不遺漏任何訊息
+
+#### Acceptance Criteria
+
+1. While 遷移進行中，the Migration Tool shall 監聽帳號 A 來源對話的新訊息
+2. When 偵測到新訊息，the Migration Tool shall 將新訊息加入待轉發佇列
+3. When 當前批次歷史訊息轉發完成，the Migration Tool shall 依序轉發佇列中的新訊息
+4. The Migration Tool shall 確保新訊息與歷史訊息的轉發順序一致
+5. If 即時同步功能發生錯誤，then the Migration Tool shall 記錄錯誤並繼續歷史訊息遷移
+
+### Requirement 8: 進度報告與日誌
+
+**Objective:** 身為使用者，我希望能清楚了解遷移狀態與歷程，以便追蹤遷移進度與排查問題
+
+#### Acceptance Criteria
+
+1. While 遷移進行中，the Migration Tool shall 即時顯示總體進度百分比
+2. While 遷移進行中，the Migration Tool shall 顯示當前處理的對話名稱與進度
+3. When 遷移完成，the Migration Tool shall 顯示完整的遷移報告（成功/失敗統計、耗時）
+4. The Migration Tool shall 將所有操作記錄至日誌檔案
+5. The Migration Tool shall 支援設定日誌詳細程度（debug、info、warn、error）
+6. If 發生錯誤，then the Migration Tool shall 在日誌中記錄完整錯誤堆疊與上下文
+
+### Requirement 9: Mac 可執行檔打包
+
+**Objective:** 身為使用者，我希望能獲得單一可執行檔，以便無需安裝額外依賴即可使用
+
+#### Acceptance Criteria
+
+1. The Migration Tool shall 打包為 Mac 原生可執行檔（.app 或獨立二進位檔）
+2. The Migration Tool shall 內嵌所有必要的 Node.js 執行環境與依賴
+3. When 使用者雙擊執行檔，the Migration Tool shall 啟動命令列介面或互動式終端
+4. The Migration Tool shall 支援 macOS 12 (Monterey) 及更新版本
+5. The Migration Tool shall 支援 Intel (x64) 與 Apple Silicon (arm64) 架構
+6. If 執行環境缺少必要權限，then the Migration Tool shall 顯示明確的權限要求說明
+
+### Requirement 10: 安全性與資料保護
+
+**Objective:** 身為使用者，我希望我的帳號憑證與訊息資料受到保護，以便安全地進行遷移
+
+#### Acceptance Criteria
+
+1. The Migration Tool shall 僅在本機儲存 session 資料，不傳輸至任何遠端伺服器
+2. The Migration Tool shall 使用 Telegram 官方 MTProto 協定進行所有 API 通訊
+3. When 使用者要求清除資料，the Migration Tool shall 安全刪除所有本機儲存的 session 與進度資料
+4. The Migration Tool shall 不儲存使用者輸入的密碼或 2FA 驗證碼
+5. If 偵測到 session 可能被竄改，then the Migration Tool shall 拒絕使用並提示重新登入
