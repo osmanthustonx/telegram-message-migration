@@ -50,9 +50,9 @@ async function main(): Promise<void> {
     migrateCmd.action(async (options, command) => {
       const globalOpts = command.optsWithGlobals();
 
-      // Load configuration
+      // Load configuration (interactive mode)
       const configLoader = new ConfigLoader();
-      const configResult = configLoader.load();
+      const configResult = await configLoader.loadInteractive();
 
       if (!configResult.success) {
         console.error(`Configuration error: ${configResult.error.type}`);

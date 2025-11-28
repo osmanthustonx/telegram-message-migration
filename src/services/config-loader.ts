@@ -10,6 +10,8 @@
  * - 支援對話過濾條件與日期範圍設定
  */
 
+// @ts-expect-error - input module has no type declarations
+import input from 'input';
 import type { IConfigLoader } from '../types/interfaces.js';
 import type { AppConfig, Result, ConfigError, DialogFilter } from '../types/index.js';
 import { LogLevel, DialogType } from '../types/index.js';
@@ -88,6 +90,70 @@ export class ConfigLoader implements IConfigLoader {
   load(_configPath?: string): Result<AppConfig, ConfigError> {
     const partialConfig = this.loadFromEnv();
     return this.validate(partialConfig);
+  }
+
+  /**
+   * 互動式載入設定
+   * 若環境變數未提供必要設定，會提示使用者輸入
+   *
+   * @returns 完整設定或錯誤
+   */
+  async loadInteractive(): Promise<Result<AppConfig, ConfigError>> {
+    const partialConfig = this.loadFromEnv();
+
+    // 檢查並互動式取得缺少的必要欄位
+    console.log('\n=== Telegram 訊息遷移工具設定 ===\n');
+
+    // API ID
+    if (partialConfig.apiId === undefined || isNaN(partialConfig.apiId)) {
+      const apiIdStr = await input.text('請輸入 Telegram API ID: ');
+      const parsed = parseInt(apiIdStr, 10);
+      if (isNaN(parsed)) {
+        return failure({
+          type: 'INVALID_VALUE',
+          field: 'apiId',
+          message: 'API ID 必須為正整數',
+        });
+      }
+      partialConfig.apiId = parsed;
+    } else {
+      console.log(`✓ API ID: ${partialConfig.apiId} (從環境變數載入)`);
+    }
+
+    // API Hash
+    if (!partialConfig.apiHash) {
+      partialConfig.apiHash = await input.text('請輸入 Telegram API Hash: ');
+    } else {
+      console.log(`✓ API Hash: ${partialConfig.apiHash.substring(0, 8)}... (從環境變數載入)`);
+    }
+
+    // Phone Number A
+    if (!partialConfig.phoneNumberA) {
+      partialConfig.phoneNumberA = await input.text('請輸入來源帳號 A 的電話號碼 (例如 +886912345678): ');
+    } else {
+      console.log(`✓ 來源帳號: ${this.maskPhone(partialConfig.phoneNumberA)} (從環境變數載入)`);
+    }
+
+    // Target User B
+    if (!partialConfig.targetUserB) {
+      partialConfig.targetUserB = await input.text('請輸入目標帳號 B 的使用者名稱或電話號碼: ');
+    } else {
+      console.log(`✓ 目標帳號: ${partialConfig.targetUserB} (從環境變數載入)`);
+    }
+
+    console.log('');
+
+    return this.validate(partialConfig);
+  }
+
+  /**
+   * 遮蔽電話號碼中間部分
+   */
+  private maskPhone(phone: string): string {
+    if (phone.length <= 6) return phone;
+    const start = phone.substring(0, 4);
+    const end = phone.substring(phone.length - 3);
+    return `${start}****${end}`;
   }
 
   /**

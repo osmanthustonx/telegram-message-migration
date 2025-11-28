@@ -95,9 +95,6 @@ export class MigrationService implements IMigrationService {
     let migratedMessages = 0;
     let failedMessages = 0;
     const errors: string[] = [];
-    let offsetId: number | undefined = undefined;
-    let hasMore = true;
-    let totalProcessed = 0;
 
     // 報告開始
     if (onProgress) {
@@ -114,9 +111,15 @@ export class MigrationService implements IMigrationService {
       const fromPeer = await client.getInputEntity(sourceDialog.entity as EntityLike);
       const toPeer = await client.getInputEntity(targetGroup.entity as EntityLike);
 
-      // 持續取得訊息直到沒有更多
+      // ========================================
+      // 階段 1：收集所有訊息 ID（從新到舊）
+      // ========================================
+      console.log(`[Collect] Dialog ${sourceDialog.id}: 開始收集所有訊息 ID...`);
+      const allMessageIds: number[] = [];
+      let offsetId: number | undefined = undefined;
+      let hasMore = true;
+
       while (hasMore) {
-        // 取得訊息批次
         const messagesResult = await this.getMessages(client, sourceDialog, {
           offsetId,
           limit: config.batchSize,
@@ -125,7 +128,6 @@ export class MigrationService implements IMigrationService {
         });
 
         if (!messagesResult.success) {
-          // 從錯誤中提取訊息
           const errorMsg = this.extractErrorMessage(messagesResult.error);
           errors.push(errorMsg);
           break;
@@ -135,20 +137,39 @@ export class MigrationService implements IMigrationService {
         hasMore = batch.hasMore;
         offsetId = batch.nextOffsetId ?? undefined;
 
-        // 如果沒有訊息，結束迴圈
-        if (batch.messages.length === 0) {
-          break;
+        // 收集這批次的訊息 ID
+        for (const msg of batch.messages) {
+          allMessageIds.push(msg.id);
         }
 
-        // 取得訊息 ID 列表
-        const messageIds = batch.messages.map((m) => m.id);
+        // 如果沒有訊息但還有更多，繼續
+        if (batch.messages.length === 0 && hasMore) {
+          continue;
+        }
+      }
+
+      console.log(`[Collect] Dialog ${sourceDialog.id}: 共收集到 ${allMessageIds.length} 則訊息`);
+
+      // ========================================
+      // 階段 2：反轉順序，從最舊到最新轉發
+      // ========================================
+      // 目前 allMessageIds 是從新到舊排列，反轉後變成從舊到新
+      allMessageIds.reverse();
+      console.log(`[Forward] Dialog ${sourceDialog.id}: 開始從最舊訊息轉發（ID ${allMessageIds[0]} -> ${allMessageIds[allMessageIds.length - 1]}）`);
+
+      // 分批轉發
+      const totalMessages = allMessageIds.length;
+      let totalProcessed = 0;
+
+      for (let i = 0; i < totalMessages; i += config.batchSize) {
+        const batchIds = allMessageIds.slice(i, i + config.batchSize);
 
         // 轉發訊息
         const forwardResult = await this.forwardMessages(
           client,
           fromPeer,
           toPeer,
-          messageIds
+          batchIds
         );
 
         if (forwardResult.success) {
@@ -158,7 +179,7 @@ export class MigrationService implements IMigrationService {
           // 處理轉發錯誤
           if (forwardResult.error.type === 'FORWARD_FAILED') {
             errors.push(forwardResult.error.message);
-            failedMessages += messageIds.length;
+            failedMessages += batchIds.length;
           } else if (forwardResult.error.type === 'FLOOD_WAIT') {
             // FloodWait 需要特殊處理，暫時記錄錯誤
             errors.push(`FloodWait: ${forwardResult.error.seconds}s`);
@@ -166,7 +187,7 @@ export class MigrationService implements IMigrationService {
           }
         }
 
-        totalProcessed += batch.messages.length;
+        totalProcessed += batchIds.length;
 
         // 報告批次完成
         if (onProgress) {
@@ -174,10 +195,14 @@ export class MigrationService implements IMigrationService {
             type: 'batch_completed',
             dialogId: sourceDialog.id,
             count: totalProcessed,
-            total: sourceDialog.messageCount,
+            total: totalMessages,
           };
           onProgress(event);
         }
+
+        // 顯示轉發進度
+        const progress = Math.round((totalProcessed / totalMessages) * 100);
+        console.log(`[Forward] Dialog ${sourceDialog.id}: ${totalProcessed}/${totalMessages} (${progress}%)`);
       }
 
       const result: DialogMigrationResult = {
@@ -301,12 +326,25 @@ export class MigrationService implements IMigrationService {
         });
 
       // 判斷是否還有更多訊息
-      // 當取得的訊息數量等於 limit 且有訊息時，可能還有更多
-      const hasMore = rawMessages.length >= limit && messages.length > 0;
+      // 關鍵：使用 rawMessages.length 判斷是否還有更多，而非過濾後的 messages.length
+      // 這樣即使某批次全是服務訊息（如「某人加入群組」），也會繼續取得下一批
+      const hasMore = rawMessages.length >= limit;
 
-      // 下一個 offsetId 為最後一則訊息的 ID
-      const lastMessage = messages[messages.length - 1];
-      const nextOffsetId = lastMessage ? lastMessage.id : null;
+      // Telegram API 返回訊息按 ID 降序（最新在前，最舊在後）
+      // 下一個 offsetId 應該是這批訊息中 ID 最小的那個（最舊的）
+      // 這樣下次請求會取得比這個 ID 更舊的訊息
+      const lastRawMessage = rawMessages[rawMessages.length - 1] as { id?: number } | undefined;
+      const firstRawMessage = rawMessages[0] as { id?: number } | undefined;
+      const nextOffsetId = lastRawMessage?.id ?? null;
+
+      // Debug: 顯示分頁資訊，包含訊息日期
+      if (rawMessages.length > 0) {
+        const firstMsg = rawMessages[0] as { id?: number; date?: number };
+        const lastMsg = rawMessages[rawMessages.length - 1] as { id?: number; date?: number };
+        const firstDate = firstMsg?.date ? new Date(firstMsg.date * 1000).toISOString() : 'N/A';
+        const lastDate = lastMsg?.date ? new Date(lastMsg.date * 1000).toISOString() : 'N/A';
+        console.log(`[Pagination] Dialog ${dialog.id}: got ${rawMessages.length} raw, ${messages.length} filtered, IDs ${firstRawMessage?.id} -> ${lastRawMessage?.id}, dates ${firstDate} -> ${lastDate}, hasMore=${hasMore}`);
+      }
 
       return success({
         messages,

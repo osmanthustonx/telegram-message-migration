@@ -126,6 +126,62 @@ function createProgressWithDialogs(
   };
 }
 
+function createMockProgressService() {
+  const mockProgress = {
+    version: '1.0',
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    sourceAccount: '',
+    targetAccount: '',
+    currentPhase: MigrationPhase.Idle,
+    dialogs: new Map(),
+    floodWaitEvents: [],
+    groupsCreatedToday: 0,
+    lastGroupCreationDate: new Date().toISOString().split('T')[0],
+    stats: {
+      totalDialogs: 0,
+      completedDialogs: 0,
+      failedDialogs: 0,
+      skippedDialogs: 0,
+      totalMessages: 0,
+      migratedMessages: 0,
+      failedMessages: 0,
+      floodWaitCount: 0,
+      totalFloodWaitSeconds: 0,
+    },
+  };
+
+  return {
+    load: vi.fn().mockResolvedValue({
+      success: true,
+      data: mockProgress,
+    }),
+    save: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    updateDialogProgress: vi.fn(),
+    updateStats: vi.fn(),
+    incrementGroupCreatedToday: vi.fn(),
+    canCreateGroupToday: vi.fn().mockReturnValue(true),
+    getGroupsCreatedToday: vi.fn().mockReturnValue(0),
+    getDailyGroupLimit: vi.fn().mockReturnValue(50),
+    getDialogStatus: vi.fn().mockReturnValue(DialogStatus.Pending),
+    isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
+    getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+    getExistingGroupForDialog: vi.fn().mockReturnValue(undefined),
+    incrementDailyGroupCreation: vi.fn().mockImplementation((progress) => ({
+      ...progress,
+      groupsCreatedToday: (progress.groupsCreatedToday || 0) + 1,
+    })),
+    markDialogComplete: vi.fn().mockImplementation((progress, dialogId) => {
+      const dialogs = new Map(progress.dialogs);
+      const existing = dialogs.get(dialogId);
+      if (existing) {
+        dialogs.set(dialogId, { ...existing, status: DialogStatus.Completed });
+      }
+      return { ...progress, dialogs };
+    }),
+  };
+}
+
 // ============================================================================
 // Task 11.2: 錯誤恢復流程測試
 // ============================================================================
@@ -610,6 +666,7 @@ describe('Error Recovery (Task 11.2)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -655,6 +712,7 @@ describe('Error Recovery (Task 11.2)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
