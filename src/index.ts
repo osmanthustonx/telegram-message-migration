@@ -9,7 +9,8 @@
  * Requirements: 8.1, 8.2, 8.3, 8.4, 8.6
  */
 
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
+dotenv.config();
 // @ts-expect-error - input module has no type declarations
 import input from 'input';
 import * as fs from 'fs/promises';

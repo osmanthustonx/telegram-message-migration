@@ -28,6 +28,53 @@ import type {
 // Mock Helpers
 // ============================================================================
 
+function createEmptyProgress(): MigrationProgress {
+  return {
+    version: '1.0',
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    sourceAccount: '',
+    targetAccount: '',
+    currentPhase: MigrationPhase.Idle,
+    dialogs: new Map(),
+    floodWaitEvents: [],
+    stats: {
+      totalDialogs: 0,
+      completedDialogs: 0,
+      failedDialogs: 0,
+      skippedDialogs: 0,
+      totalMessages: 0,
+      migratedMessages: 0,
+      failedMessages: 0,
+      floodWaitCount: 0,
+      totalFloodWaitSeconds: 0,
+    },
+  };
+}
+
+/**
+ * 建立 mock ProgressService
+ * 用於避免測試時使用真實的 ProgressService 導致 daily limit 問題
+ */
+function createMockProgressService() {
+  return {
+    load: vi.fn().mockResolvedValue({ success: true, data: createEmptyProgress() }),
+    save: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    initializeDialog: vi.fn().mockImplementation((p) => p),
+    markDialogStarted: vi.fn().mockImplementation((p) => p),
+    markDialogComplete: vi.fn().mockImplementation((p) => p),
+    markDialogFailed: vi.fn().mockImplementation((p) => p),
+    updateDialogProgress: vi.fn().mockImplementation((p) => p),
+    getDialogStatus: vi.fn().mockReturnValue(DialogStatus.Pending),
+    getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+    incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+    resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+    isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
+    exportProgress: vi.fn().mockReturnValue('{}'),
+    importProgress: vi.fn().mockReturnValue({ success: true, data: createEmptyProgress() }),
+  };
+}
+
 function createMockDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
   return {
     id: '12345',
@@ -139,6 +186,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       // 驗證 Session 存在性檢查
@@ -212,6 +260,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -260,6 +309,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -307,6 +357,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -354,6 +405,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -397,6 +449,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -440,6 +493,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -626,6 +680,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
         reportService: mockReportService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -687,6 +742,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
         reportService: mockReportService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -766,6 +822,7 @@ describe('Acceptance Tests (Task 11.3)', () => {
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
         reportService: mockReportService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -825,31 +882,3 @@ describe('Acceptance Tests (Task 11.3)', () => {
     });
   });
 });
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-function createEmptyProgress(): MigrationProgress {
-  return {
-    version: '1.0',
-    startedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    sourceAccount: '',
-    targetAccount: '',
-    currentPhase: MigrationPhase.Idle,
-    dialogs: new Map(),
-    floodWaitEvents: [],
-    stats: {
-      totalDialogs: 0,
-      completedDialogs: 0,
-      failedDialogs: 0,
-      skippedDialogs: 0,
-      totalMessages: 0,
-      migratedMessages: 0,
-      failedMessages: 0,
-      floodWaitCount: 0,
-      totalFloodWaitSeconds: 0,
-    },
-  };
-}

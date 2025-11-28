@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "startedAt": "2025-11-25T16:22:02.078Z",
-  "updatedAt": "2025-11-27T06:01:35.706Z",
+  "updatedAt": "2025-11-28T09:53:51.324Z",
   "sourceAccount": "",
   "targetAccount": "",
   "currentPhase": "idle",
@@ -19,7 +19,7 @@
     "totalFloodWaitSeconds": 0
   },
   "dailyGroupCreation": {
-    "date": "2025-11-27",
-    "count": 12
+    "date": "2025-11-28",
+    "count": 48
   }
 }

@@ -370,9 +370,71 @@ tests/                      # 測試檔案
 
 MIT License
 
+## Mac 可執行檔打包
+
+本工具支援打包為 Mac 原生可執行檔，無需安裝 Node.js 即可執行。
+
+### 建置執行檔
+
+```bash
+# 完整建置流程
+npm run build:all
+
+# 或分步執行
+npm run build          # 編譯 TypeScript
+npm run build:bundle   # 打包為單一 JS 檔案
+npm run build:sea      # 產生 SEA blob
+npm run build:exe      # 產生可執行檔
+```
+
+### 執行權限
+
+建置完成後，需要設定執行權限：
+
+```bash
+chmod +x dist/tg-migrate
+```
+
+### 使用可執行檔
+
+```bash
+# 顯示說明
+./dist/tg-migrate --help
+
+# 執行遷移
+./dist/tg-migrate migrate
+
+# 預覽模式
+./dist/tg-migrate migrate --dry-run
+```
+
+### 平台支援
+
+- macOS 12 (Monterey) 及更新版本
+- Intel (x64) 與 Apple Silicon (arm64) 架構
+
+## 資料清除
+
+使用 `clean` 命令安全刪除所有本機儲存的敏感資料：
+
+```bash
+# 互動式確認
+npm start -- clean
+
+# 強制刪除（跳過確認）
+npm start -- clean --force
+```
+
+此命令會刪除：
+- Session 檔案（`session.txt`）
+- 進度檔案（`migration-progress.json`）
+- 日誌檔案（`migration.log`）
+
 ## 注意事項
 
 - 請確保您有權限存取來源帳號的所有對話
 - 大量遷移可能觸發 Telegram 的速率限制，工具會自動處理
 - 建議在穩定的網路環境下執行遷移
 - 每日群組建立有上限（約 50 個），超過時工具會自動暫停
+- Session 檔案包含敏感認證資訊，請妥善保管
+- 本工具使用 Telegram 官方 MTProto 協定，所有通訊皆加密

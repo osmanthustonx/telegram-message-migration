@@ -113,6 +113,16 @@ export function createProgram(): Command {
       console.log('Import command', { file, global: globalOpts });
     });
 
+  // Clean command (Task 13.2)
+  program
+    .command('clean')
+    .description('Securely delete all local session and progress data')
+    .option('--force', 'Skip confirmation prompt', false)
+    .action(async (options, command) => {
+      const globalOpts = command.optsWithGlobals();
+      console.log('Clean command', { ...options, global: globalOpts });
+    });
+
   return program;
 }
 

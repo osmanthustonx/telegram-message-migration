@@ -9,6 +9,10 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:bundle": "npx esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/bundle.js --format=cjs",
+    "build:sea": "node --experimental-sea-config sea-config.json",
+    "build:exe": "bash scripts/build-exe.sh",
+    "build:all": "npm run build && npm run build:bundle && npm run build:sea && npm run build:exe",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "lint": "eslint src/**/*.ts",
@@ -17,7 +21,8 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "clean": "node -e \"const fs=require('fs');['./session.txt','./migration-progress.json','./migration.log'].forEach(f=>{try{fs.unlinkSync(f);console.log('Deleted:',f)}catch{}});\""
   },
   "keywords": [
     "telegram",

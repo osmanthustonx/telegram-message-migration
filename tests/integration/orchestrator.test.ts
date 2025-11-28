@@ -26,6 +26,30 @@ import type {
 // Mock Helpers
 // ============================================================================
 
+function createEmptyProgress(): MigrationProgress {
+  return {
+    version: '1.0',
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    sourceAccount: '',
+    targetAccount: '',
+    currentPhase: MigrationPhase.Idle,
+    dialogs: new Map(),
+    floodWaitEvents: [],
+    stats: {
+      totalDialogs: 0,
+      completedDialogs: 0,
+      failedDialogs: 0,
+      skippedDialogs: 0,
+      totalMessages: 0,
+      migratedMessages: 0,
+      failedMessages: 0,
+      floodWaitCount: 0,
+      totalFloodWaitSeconds: 0,
+    },
+  };
+}
+
 function createMockDialogInfo(overrides: Partial<DialogInfo> = {}): DialogInfo {
   return {
     id: '12345',
@@ -79,6 +103,29 @@ function createMockOrchestratorConfig(
     logFilePath: './test-migration-orchestrator.log',
     groupCreationDelayMs: 0, // 測試環境不需要延遲
     ...overrides,
+  };
+}
+
+/**
+ * 建立 mock ProgressService
+ * 用於避免測試時使用真實的 ProgressService 導致 daily limit 問題
+ */
+function createMockProgressService() {
+  return {
+    load: vi.fn().mockResolvedValue({ success: true, data: createEmptyProgress() }),
+    save: vi.fn().mockResolvedValue({ success: true, data: undefined }),
+    initializeDialog: vi.fn().mockImplementation((p) => p),
+    markDialogStarted: vi.fn().mockImplementation((p) => p),
+    markDialogComplete: vi.fn().mockImplementation((p) => p),
+    markDialogFailed: vi.fn().mockImplementation((p) => p),
+    updateDialogProgress: vi.fn().mockImplementation((p) => p),
+    getDialogStatus: vi.fn().mockReturnValue(DialogStatus.Pending),
+    getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
+    incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+    resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
+    isDailyGroupLimitReached: vi.fn().mockReturnValue(false),
+    exportProgress: vi.fn().mockReturnValue('{}'),
+    importProgress: vi.fn().mockReturnValue({ success: true, data: createEmptyProgress() }),
   };
 }
 
@@ -173,6 +220,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -251,6 +299,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -294,6 +343,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -333,6 +383,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -494,6 +545,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
       orchestrator = new MigrationOrchestrator(config, {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -557,6 +609,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       const result = await orchestrator.runMigration(mockClient);
@@ -637,6 +690,7 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         dialogService: mockDialogService as any,
         groupService: mockGroupService as any,
         migrationService: mockMigrationService as any,
+        progressService: createMockProgressService() as any,
       });
 
       await orchestrator.runMigration(mockClient);
@@ -648,34 +702,6 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
     });
   });
 });
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-function createEmptyProgress(): MigrationProgress {
-  return {
-    version: '1.0',
-    startedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    sourceAccount: '',
-    targetAccount: '',
-    currentPhase: MigrationPhase.Idle,
-    dialogs: new Map(),
-    floodWaitEvents: [],
-    stats: {
-      totalDialogs: 0,
-      completedDialogs: 0,
-      failedDialogs: 0,
-      skippedDialogs: 0,
-      totalMessages: 0,
-      migratedMessages: 0,
-      failedMessages: 0,
-      floodWaitCount: 0,
-      totalFloodWaitSeconds: 0,
-    },
-  };
-}
 
 // ============================================================================
 // Task 6.2: 即時同步服務整合測試
@@ -757,6 +783,7 @@ describe('MigrationOrchestrator - RealtimeSyncService Integration (Task 6.2)', (
       groupService: mockGroupService as any,
       migrationService: mockMigrationService as any,
       realtimeSyncService: mockRealtimeSyncService as any,
+      progressService: createMockProgressService() as any,
     });
 
     await orchestrator.runMigration(mockClient);
@@ -826,6 +853,7 @@ describe('MigrationOrchestrator - RealtimeSyncService Integration (Task 6.2)', (
       dialogService: mockDialogService as any,
       groupService: mockGroupService as any,
       realtimeSyncService: mockRealtimeSyncService as any,
+      progressService: createMockProgressService() as any,
     });
 
     await orchestrator.runMigration(mockClient);
@@ -872,6 +900,7 @@ describe('MigrationOrchestrator - RealtimeSyncService Integration (Task 6.2)', (
       groupService: mockGroupService as any,
       migrationService: mockMigrationService as any,
       realtimeSyncService: undefined as any,
+      progressService: createMockProgressService() as any,
     });
 
     // 應該可以正常執行不會報錯
