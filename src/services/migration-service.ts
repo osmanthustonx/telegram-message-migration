@@ -37,6 +37,7 @@ import type {
   ForwardResult,
   ProgressCallback,
   ProgressEvent,
+  MigrationError as MigrationErrorInfo,
 } from '../types/models.js';
 import { success, failure } from '../types/result.js';
 
@@ -83,6 +84,7 @@ export class MigrationService implements IMigrationService {
    * @param targetGroup - 目標群組
    * @param config - 遷移設定
    * @param onProgress - 進度回呼
+   * @param resumeFromMessageId - 從指定訊息 ID 恢復（用於 PartiallyMigrated 狀態）
    * @returns 遷移結果或錯誤
    */
   async migrateDialog(
@@ -90,10 +92,13 @@ export class MigrationService implements IMigrationService {
     sourceDialog: DialogInfo,
     targetGroup: GroupInfo,
     config: MigrationConfig,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    resumeFromMessageId?: number
   ): Promise<Result<DialogMigrationResult, MigrationError>> {
     let migratedMessages = 0;
     let failedMessages = 0;
+    let lastMigratedMessageId: number | undefined = undefined;
+    let floodWaitError: MigrationErrorInfo | undefined = undefined;
     const errors: string[] = [];
 
     // 報告開始
@@ -114,10 +119,16 @@ export class MigrationService implements IMigrationService {
       // ========================================
       // 階段 1：收集所有訊息 ID（從新到舊）
       // ========================================
-      console.log(`[Collect] Dialog ${sourceDialog.id}: 開始收集所有訊息 ID...`);
+      const isResuming = resumeFromMessageId !== undefined;
+      if (isResuming) {
+        console.log(`[Collect] Dialog ${sourceDialog.id}: 從訊息 ID ${resumeFromMessageId} 恢復，收集後續訊息...`);
+      } else {
+        console.log(`[Collect] Dialog ${sourceDialog.id}: 開始收集所有訊息 ID...`);
+      }
       const allMessageIds: number[] = [];
       let offsetId: number | undefined = undefined;
       let hasMore = true;
+      let collectFloodWait = false;
 
       while (hasMore) {
         const messagesResult = await this.getMessages(client, sourceDialog, {
@@ -130,6 +141,15 @@ export class MigrationService implements IMigrationService {
         if (!messagesResult.success) {
           const errorMsg = this.extractErrorMessage(messagesResult.error);
           errors.push(errorMsg);
+          // 檢查是否為 FloodWait 錯誤
+          if (messagesResult.error.type === 'FLOOD_WAIT') {
+            collectFloodWait = true;
+            floodWaitError = {
+              type: 'FLOOD_WAIT',
+              message: `GetHistory FloodWait: ${messagesResult.error.seconds}s`,
+              floodWaitSeconds: messagesResult.error.seconds,
+            };
+          }
           break;
         }
 
@@ -148,6 +168,20 @@ export class MigrationService implements IMigrationService {
         }
       }
 
+      // 如果收集階段遇到 FloodWait，返回部分結果
+      if (collectFloodWait) {
+        const result: DialogMigrationResult = {
+          dialogId: sourceDialog.id,
+          success: false,
+          migratedMessages: 0,
+          failedMessages: 0,
+          errors,
+          lastMigratedMessageId: undefined,
+          error: floodWaitError,
+        };
+        return success(result);
+      }
+
       console.log(`[Collect] Dialog ${sourceDialog.id}: 共收集到 ${allMessageIds.length} 則訊息`);
 
       // ========================================
@@ -155,14 +189,31 @@ export class MigrationService implements IMigrationService {
       // ========================================
       // 目前 allMessageIds 是從新到舊排列，反轉後變成從舊到新
       allMessageIds.reverse();
-      console.log(`[Forward] Dialog ${sourceDialog.id}: 開始從最舊訊息轉發（ID ${allMessageIds[0]} -> ${allMessageIds[allMessageIds.length - 1]}）`);
+
+      // 如果是恢復模式，過濾掉已遷移的訊息（ID <= resumeFromMessageId）
+      let messagesToForward = allMessageIds;
+      if (isResuming && resumeFromMessageId !== undefined) {
+        const resumeIndex = allMessageIds.findIndex(id => id > resumeFromMessageId);
+        if (resumeIndex > 0) {
+          messagesToForward = allMessageIds.slice(resumeIndex);
+          console.log(`[Forward] Dialog ${sourceDialog.id}: 跳過已遷移的 ${resumeIndex} 則訊息，從 ID ${messagesToForward[0]} 繼續`);
+        } else if (resumeIndex === -1) {
+          // 所有訊息都已遷移
+          console.log(`[Forward] Dialog ${sourceDialog.id}: 所有訊息已遷移完成`);
+          messagesToForward = [];
+        }
+      }
+
+      if (messagesToForward.length > 0) {
+        console.log(`[Forward] Dialog ${sourceDialog.id}: 開始從最舊訊息轉發（ID ${messagesToForward[0]} -> ${messagesToForward[messagesToForward.length - 1]}）`);
+      }
 
       // 分批轉發
-      const totalMessages = allMessageIds.length;
+      const totalMessages = messagesToForward.length;
       let totalProcessed = 0;
 
       for (let i = 0; i < totalMessages; i += config.batchSize) {
-        const batchIds = allMessageIds.slice(i, i + config.batchSize);
+        const batchIds = messagesToForward.slice(i, i + config.batchSize);
 
         // 轉發訊息
         const forwardResult = await this.forwardMessages(
@@ -175,14 +226,31 @@ export class MigrationService implements IMigrationService {
         if (forwardResult.success) {
           migratedMessages += forwardResult.data.successCount;
           failedMessages += forwardResult.data.failedIds.length;
+          // 更新最後成功遷移的訊息 ID（批次中的最後一個）
+          lastMigratedMessageId = batchIds[batchIds.length - 1];
         } else {
           // 處理轉發錯誤
           if (forwardResult.error.type === 'FORWARD_FAILED') {
             errors.push(forwardResult.error.message);
             failedMessages += batchIds.length;
           } else if (forwardResult.error.type === 'FLOOD_WAIT') {
-            // FloodWait 需要特殊處理，暫時記錄錯誤
-            errors.push(`FloodWait: ${forwardResult.error.seconds}s`);
+            // FloodWait：記錄結構化錯誤並中斷
+            const seconds = forwardResult.error.seconds ?? 60;
+            errors.push(`FloodWait: ${seconds}s`);
+            floodWaitError = {
+              type: 'FLOOD_WAIT',
+              message: `ForwardMessages FloodWait: ${seconds}s`,
+              floodWaitSeconds: seconds,
+            };
+            // 報告 FloodWait 事件
+            if (onProgress) {
+              const event: ProgressEvent = {
+                type: 'flood_wait',
+                seconds,
+                operation: 'forward_messages',
+              };
+              onProgress(event);
+            }
             break;
           }
         }
@@ -205,12 +273,17 @@ export class MigrationService implements IMigrationService {
         console.log(`[Forward] Dialog ${sourceDialog.id}: ${totalProcessed}/${totalMessages} (${progress}%)`);
       }
 
+      // 判斷是否成功完成（無 FloodWait 錯誤且無失敗訊息）
+      const isSuccess = !floodWaitError && failedMessages === 0 && errors.length === 0;
+
       const result: DialogMigrationResult = {
         dialogId: sourceDialog.id,
-        success: failedMessages === 0 && errors.length === 0,
+        success: isSuccess,
         migratedMessages,
         failedMessages,
         errors,
+        lastMigratedMessageId,
+        error: floodWaitError,
       };
 
       // 報告完成
@@ -228,12 +301,25 @@ export class MigrationService implements IMigrationService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       errors.push(errorMessage);
 
+      // 檢查是否為 FloodWait 異常
+      let caughtFloodWaitError: MigrationErrorInfo | undefined = undefined;
+      if (this.isFloodWaitError(error)) {
+        const seconds = this.extractFloodWaitSeconds(error);
+        caughtFloodWaitError = {
+          type: 'FLOOD_WAIT',
+          message: `Exception FloodWait: ${seconds}s`,
+          floodWaitSeconds: seconds,
+        };
+      }
+
       const result: DialogMigrationResult = {
         dialogId: sourceDialog.id,
         success: false,
         migratedMessages,
         failedMessages,
         errors,
+        lastMigratedMessageId,
+        error: caughtFloodWaitError ?? floodWaitError,
       };
 
       // 報告完成（即使失敗）

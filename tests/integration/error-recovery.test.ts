@@ -334,7 +334,8 @@ describe('Error Recovery (Task 11.2)', () => {
         expect.objectContaining({ id: '2' }),
         expect.any(Object),
         expect.any(Object),
-        expect.any(Function)
+        expect.any(Function),
+        undefined // resumeFromMessageId
       );
     });
 

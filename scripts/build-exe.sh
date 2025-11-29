@@ -101,3 +101,55 @@ echo ""
 echo "使用方式:"
 echo "  ${EXE_PATH} --help"
 echo "  ${EXE_PATH} migrate --dry-run"
+
+# ========================================
+# 打包成 zip 供分發
+# ========================================
+echo ""
+echo -e "${GREEN}=== 打包分發版本 ===${NC}"
+
+RELEASE_DIR="${OUTPUT_DIR}/release"
+ZIP_NAME="tg-migrate-mac.zip"
+
+# 建立 release 目錄
+rm -rf "$RELEASE_DIR"
+mkdir -p "$RELEASE_DIR"
+
+# 複製執行檔
+cp "$EXE_PATH" "$RELEASE_DIR/"
+
+# 產生 README.txt
+cat > "$RELEASE_DIR/README.txt" << 'EOF'
+Telegram 訊息遷移工具
+====================
+
+首次執行前，請在終端機執行以下指令移除隔離屬性：
+
+  xattr -cr ./tg-migrate
+
+然後執行：
+
+  ./tg-migrate --help
+
+開始遷移：
+
+  ./tg-migrate migrate
+
+環境變數設定（可選）：
+  - TG_API_ID: Telegram API ID
+  - TG_API_HASH: Telegram API Hash
+  - TG_PHONE_A: 來源帳號電話號碼
+  - TG_TARGET_USER_B: 目標帳號使用者名稱
+
+若未設定環境變數，程式會在執行時提示輸入。
+EOF
+
+# 壓縮
+cd "$OUTPUT_DIR"
+rm -f "$ZIP_NAME"
+zip -r "$ZIP_NAME" release/
+cd - > /dev/null
+
+ZIP_SIZE=$(du -h "${OUTPUT_DIR}/${ZIP_NAME}" | cut -f1)
+echo -e "${GREEN}分發檔案: ${OUTPUT_DIR}/${ZIP_NAME}${NC}"
+echo "壓縮檔大小: ${ZIP_SIZE}"

@@ -31,6 +31,8 @@ export const DialogStatus = {
   Pending: 'pending',
   /** 處理中 */
   InProgress: 'in_progress',
+  /** 部分遷移（因 FloodWait 超時中斷，可從斷點恢復） */
+  PartiallyMigrated: 'partially_migrated',
   /** 已完成 */
   Completed: 'completed',
   /** 失敗 */

@@ -408,6 +408,97 @@ export class ProgressService implements IProgressService {
   }
 
   /**
+   * 標記對話為部分遷移狀態
+   *
+   * 當因 FloodWait 超時中斷時，將對話標記為 partially_migrated，
+   * 記錄已遷移的進度，支援後續從斷點恢復。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @param lastMigratedMessageId - 最後成功遷移的訊息 ID
+   * @param floodWaitSeconds - FloodWait 等待秒數（用於記錄）
+   * @returns 更新後的進度
+   */
+  markDialogPartiallyMigrated(
+    progress: MigrationProgress,
+    dialogId: string,
+    lastMigratedMessageId: number | null,
+    floodWaitSeconds?: number
+  ): MigrationProgress {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return progress;
+    }
+
+    // 建立中斷記錄
+    const interruptRecord = {
+      timestamp: new Date().toISOString(),
+      messageId: lastMigratedMessageId,
+      errorType: 'FLOOD_WAIT_TIMEOUT',
+      errorMessage: floodWaitSeconds
+        ? `FloodWait 超時中斷 (${floodWaitSeconds}s > 300s 限制)`
+        : 'FloodWait 超時中斷',
+    };
+
+    // 建立更新後的對話進度
+    const updatedDialogProgress: DialogProgress = {
+      ...dialogProgress,
+      status: DialogStatus.PartiallyMigrated,
+      lastMessageId: lastMigratedMessageId,
+      errors: [...dialogProgress.errors, interruptRecord],
+    };
+
+    // 建立新的 Map
+    const newDialogs = new Map(progress.dialogs);
+    newDialogs.set(dialogId, updatedDialogProgress);
+
+    return {
+      ...progress,
+      dialogs: newDialogs,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 取得對話的恢復點資訊
+   *
+   * 檢查對話是否為 PartiallyMigrated 或 InProgress 狀態，
+   * 若是則回傳恢復點資訊（最後訊息 ID 與已遷移數量）。
+   *
+   * @param progress - 目前進度
+   * @param dialogId - 對話 ID
+   * @returns 恢復點資訊，若無則回傳 null
+   */
+  getResumePoint(
+    progress: MigrationProgress,
+    dialogId: string
+  ): { lastMessageId: number; migratedCount: number; targetGroupId: string } | null {
+    const dialogProgress = progress.dialogs.get(dialogId);
+    if (!dialogProgress) {
+      return null;
+    }
+
+    // 只有 PartiallyMigrated 或 InProgress 狀態才有恢復點
+    if (
+      dialogProgress.status !== DialogStatus.PartiallyMigrated &&
+      dialogProgress.status !== DialogStatus.InProgress
+    ) {
+      return null;
+    }
+
+    // 必須有 lastMessageId 和 targetGroupId 才能恢復
+    if (!dialogProgress.lastMessageId || !dialogProgress.targetGroupId) {
+      return null;
+    }
+
+    return {
+      lastMessageId: dialogProgress.lastMessageId,
+      migratedCount: dialogProgress.migratedCount,
+      targetGroupId: dialogProgress.targetGroupId,
+    };
+  }
+
+  /**
    * 標記對話跳過
    *
    * 將對話狀態設為 skipped，記錄跳過原因，並更新跳過對話統計。
@@ -913,6 +1004,21 @@ export class ProgressService implements IProgressService {
       return dialog1;
     }
     if (dialog2.status === DialogStatus.Completed && dialog1.status !== DialogStatus.Completed) {
+      return dialog2;
+    }
+
+    // PartiallyMigrated 優先於 Pending/Failed（有部分進度）
+    const hasPartialProgress1 =
+      dialog1.status === DialogStatus.PartiallyMigrated ||
+      dialog1.status === DialogStatus.InProgress;
+    const hasPartialProgress2 =
+      dialog2.status === DialogStatus.PartiallyMigrated ||
+      dialog2.status === DialogStatus.InProgress;
+
+    if (hasPartialProgress1 && !hasPartialProgress2) {
+      return dialog1;
+    }
+    if (hasPartialProgress2 && !hasPartialProgress1) {
       return dialog2;
     }
 

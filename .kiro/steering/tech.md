@@ -5,7 +5,8 @@
 服務導向架構 (Service-Oriented)：核心功能拆分為獨立服務模組，透過介面定義依賴，由協調器 (Orchestrator) 整合執行流程。
 
 ```
-CLI Layer (commander) → Orchestrator → Services (Auth, Dialog, Group, Migration, Progress, Report, RealtimeSync)
+CLI Layer (commander) → Orchestrator → Domain Services (Auth, Dialog, Group, Migration, RealtimeSync)
+                                     → Infrastructure Services (Session, RateLimiter, Config, Progress, Log, Report)
 ```
 
 ## Core Technologies

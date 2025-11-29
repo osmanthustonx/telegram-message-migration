@@ -329,6 +329,23 @@ export interface ForwardResult {
 }
 
 /**
+ * 遷移錯誤類型
+ */
+export type MigrationErrorType = 'FLOOD_WAIT' | 'API_ERROR' | 'NETWORK_ERROR' | 'UNKNOWN';
+
+/**
+ * 遷移錯誤資訊
+ */
+export interface MigrationError {
+  /** 錯誤類型 */
+  type: MigrationErrorType;
+  /** 錯誤訊息 */
+  message: string;
+  /** FloodWait 等待秒數（僅當 type 為 FLOOD_WAIT 時有值） */
+  floodWaitSeconds?: number;
+}
+
+/**
  * 單一對話遷移結果
  */
 export interface DialogMigrationResult {
@@ -342,6 +359,10 @@ export interface DialogMigrationResult {
   failedMessages: number;
   /** 錯誤訊息列表 */
   errors: string[];
+  /** 最後成功遷移的訊息 ID（用於恢復） */
+  lastMigratedMessageId?: number;
+  /** 結構化錯誤資訊（用於 Orchestrator 判斷處理方式） */
+  error?: MigrationError;
 }
 
 /**

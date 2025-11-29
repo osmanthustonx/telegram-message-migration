@@ -210,6 +210,7 @@ export interface IMigrationService {
    * @param targetGroup - 目標群組
    * @param config - 遷移設定
    * @param onProgress - 進度回呼
+   * @param resumeFromMessageId - 從指定訊息 ID 恢復（用於 PartiallyMigrated 狀態）
    * @returns 遷移結果或錯誤
    */
   migrateDialog(
@@ -217,7 +218,8 @@ export interface IMigrationService {
     sourceDialog: DialogInfo,
     targetGroup: GroupInfo,
     config: MigrationConfig,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    resumeFromMessageId?: number
   ): Promise<Result<DialogMigrationResult, MigrationError>>;
 
   /**

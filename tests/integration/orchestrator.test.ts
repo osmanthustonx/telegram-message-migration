@@ -394,7 +394,8 @@ describe('MigrationOrchestrator (Task 11.1)', () => {
         testDialog,
         testGroup,
         expect.any(Object),
-        expect.any(Function)
+        expect.any(Function),
+        undefined // resumeFromMessageId
       );
     });
   });

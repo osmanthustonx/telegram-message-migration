@@ -19,12 +19,19 @@
 **Domain Services** (業務邏輯):
 - `auth-service.ts` - Telegram 驗證
 - `dialog-service.ts` - 對話列舉與過濾
+- `group-service.ts` - 目標群組建立與管理
 - `migration-service.ts` - 訊息遷移邏輯
+- `realtime-sync-service.ts` - 即時訊息監聽與同步
 - `orchestrator.ts` - 流程協調
 
 **Infrastructure Services** (跨領域支援):
 - Pattern: 提供共用基礎設施功能，可被多個 Domain Service 依賴
-- Example: `session-manager.ts` (Session 持久化), `rate-limiter.ts` (流量控制), `config-loader.ts` (設定載入), `log-service.ts` (日誌記錄)
+- `session-manager.ts` - Session 持久化與重連管理
+- `rate-limiter.ts` - 流量控制與 FloodWait 處理
+- `config-loader.ts` - 設定載入與驗證
+- `progress-service.ts` - 遷移進度持久化
+- `log-service.ts` - 結構化日誌記錄
+- `report-service.ts` - 遷移報告產生
 
 ### Types Layer (`/src/types/`)
 **Purpose**: TypeScript 類型定義與介面

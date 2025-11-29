@@ -504,7 +504,8 @@ describe('Acceptance Tests (Task 11.3)', () => {
         expect.any(Object),
         expect.any(Object),
         expect.objectContaining({ batchSize: 100 }),
-        expect.any(Function)
+        expect.any(Function),
+        undefined // resumeFromMessageId
       );
     });
   });

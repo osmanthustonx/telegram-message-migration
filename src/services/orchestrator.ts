@@ -46,6 +46,14 @@ import { DialogStatus, MigrationPhase } from '../types/enums.js';
 import { Api } from 'telegram';
 
 /**
+ * FloodWait 最大等待秒數
+ *
+ * 超過此閾值將標記對話為 PartiallyMigrated 並停止遷移
+ * 與 GramJS floodSleepThreshold 保持一致
+ */
+const MAX_FLOOD_WAIT_SECONDS = 300; // 5 分鐘
+
+/**
  * 服務依賴注入介面
  *
  * 允許在測試時注入 mock 服務
@@ -211,8 +219,25 @@ export class MigrationOrchestrator {
         continue;
       }
 
+      // 檢查是否為部分遷移狀態（需要從斷點恢復）
+      let resumeFromMessageId: number | undefined = undefined;
+      if (status === DialogStatus.PartiallyMigrated) {
+        const resumePoint = (this.progressService as ProgressService).getResumePoint(
+          progress,
+          dialog.id
+        );
+        if (resumePoint) {
+          resumeFromMessageId = resumePoint.lastMessageId;
+          migratedMessages += resumePoint.migratedCount;
+          console.log(
+            `[Dialog ${dialog.id}] 從部分遷移狀態恢復，已遷移 ${resumePoint.migratedCount} 則，從訊息 ID ${resumeFromMessageId} 繼續`
+          );
+        }
+      }
+
       // 檢查每日群組建立限制（僅在需要建立新群組時檢查）
-      const needsNewGroup = status !== DialogStatus.InProgress;
+      // InProgress 或 PartiallyMigrated 狀態的對話已有目標群組
+      const needsNewGroup = status !== DialogStatus.InProgress && status !== DialogStatus.PartiallyMigrated;
       if (needsNewGroup) {
         const ps = this.progressService as ProgressService;
         if (ps.isDailyGroupLimitReached(progress, dailyGroupLimit)) {
@@ -282,8 +307,9 @@ export class MigrationOrchestrator {
         this.realtimeSyncService.registerMapping(dialog.id, targetGroup.id);
       }
 
-      // 邀請 B 帳號（若尚未進行中）
-      if (status !== DialogStatus.InProgress) {
+      // 邀請 B 帳號（若尚未進行中或部分遷移）
+      // InProgress 和 PartiallyMigrated 狀態已完成邀請
+      if (status !== DialogStatus.InProgress && status !== DialogStatus.PartiallyMigrated) {
         const inviteResult = await this.groupService.inviteUser(
           client,
           targetGroup,
@@ -328,11 +354,13 @@ export class MigrationOrchestrator {
         dialog,
         targetGroup,
         migrationConfig,
-        progressCallback
+        progressCallback,
+        resumeFromMessageId
       );
 
       // 記錄批次遷移最後處理的訊息 ID
       let lastBatchMessageId = 0;
+      let shouldStopMigration = false;
 
       if (migrateResult.success) {
         const result = migrateResult.data;
@@ -345,27 +373,152 @@ export class MigrationOrchestrator {
           lastBatchMessageId = dialogProgress.lastMessageId;
         }
 
-        // [即時同步] 處理佇列（批次遷移完成後）
-        if (this.realtimeSyncService && lastBatchMessageId > 0) {
-          const queueResult = await this.realtimeSyncService.processQueue(
-            dialog.id,
-            lastBatchMessageId
+        // ====================================================================
+        // FloodWait 處理邏輯
+        // ====================================================================
+        if (result.error?.type === 'FLOOD_WAIT' && result.error.floodWaitSeconds) {
+          const waitSeconds = result.error.floodWaitSeconds;
+          const lastMigratedId = result.lastMigratedMessageId;
+
+          console.log(
+            `\n⏳ [FloodWait] 遇到限流，需等待 ${waitSeconds} 秒`
           );
-          if (queueResult.success) {
-            migratedMessages += queueResult.data.successCount;
-            failedMessages += queueResult.data.failedCount;
+
+          if (waitSeconds <= MAX_FLOOD_WAIT_SECONDS) {
+            // 在閾值內：暫停整個流程，等待後重試當前對話
+            console.log(
+              `[FloodWait] 等待時間在閾值內（${waitSeconds}s <= ${MAX_FLOOD_WAIT_SECONDS}s）`
+            );
+
+            // 先保存部分進度
+            const ps = this.progressService as ProgressService;
+            if (typeof ps.markDialogPartiallyMigrated === 'function') {
+              progress = ps.markDialogPartiallyMigrated(
+                progress,
+                dialog.id,
+                lastMigratedId ?? null,
+                waitSeconds
+              );
+              await this.saveProgress(progress);
+            }
+
+            // 顯示倒數計時
+            await this.displayCountdown(waitSeconds);
+
+            // 等待結束後，重新嘗試當前對話
+            // 透過更新 resumeFromMessageId 並重新執行遷移
+            console.log(`[FloodWait] 等待結束，從訊息 ID ${lastMigratedId ?? 'start'} 繼續遷移`);
+
+            // 重新執行遷移（從上次中斷點繼續）
+            const retryResult = await this.migrationService.migrateDialog(
+              client,
+              dialog,
+              targetGroup,
+              migrationConfig,
+              progressCallback,
+              lastMigratedId
+            );
+
+            // 處理重試結果
+            if (retryResult.success) {
+              const retryData = retryResult.data;
+              migratedMessages += retryData.migratedMessages;
+              failedMessages += retryData.failedMessages;
+
+              if (retryData.success) {
+                completedDialogs++;
+                progress = this.progressService.markDialogComplete(progress, dialog.id);
+                console.log(`[Dialog ${dialog.id}] 重試成功，遷移完成`);
+              } else if (retryData.error?.type === 'FLOOD_WAIT') {
+                // 再次遇到 FloodWait，標記為部分遷移並停止
+                const ps = this.progressService as ProgressService;
+                if (typeof ps.markDialogPartiallyMigrated === 'function') {
+                  progress = ps.markDialogPartiallyMigrated(
+                    progress,
+                    dialog.id,
+                    retryData.lastMigratedMessageId ?? null,
+                    retryData.error.floodWaitSeconds
+                  );
+                }
+                shouldStopMigration = true;
+                console.log(
+                  `\n🛑 [FloodWait] 連續遇到限流，標記為部分遷移並停止`
+                );
+                await this.sendFloodWaitNotification(
+                  client,
+                  retryData.error.floodWaitSeconds ?? 0,
+                  completedDialogs,
+                  dialogsAfterFilter.length - completedDialogs - skippedDialogs
+                );
+              } else {
+                completedDialogs++;
+                progress = this.progressService.markDialogComplete(progress, dialog.id);
+              }
+            } else {
+              failedDialogs++;
+              console.error(`[Dialog ${dialog.id}] 重試失敗`);
+            }
+          } else {
+            // 超過閾值：標記為部分遷移並停止整個流程
+            const hours = Math.floor(waitSeconds / 3600);
+            const minutes = Math.floor((waitSeconds % 3600) / 60);
+            console.log(
+              `\n🛑 [FloodWait] 等待時間超過閾值（${waitSeconds}s > ${MAX_FLOOD_WAIT_SECONDS}s）`
+            );
+            console.log(
+              `需等待約 ${hours}h ${minutes}m，建議稍後重新執行`
+            );
+
+            // 標記為部分遷移
+            const ps = this.progressService as ProgressService;
+            if (typeof ps.markDialogPartiallyMigrated === 'function') {
+              progress = ps.markDialogPartiallyMigrated(
+                progress,
+                dialog.id,
+                lastMigratedId ?? null,
+                waitSeconds
+              );
+            }
+
+            // 發送通知
+            await this.sendFloodWaitNotification(
+              client,
+              waitSeconds,
+              completedDialogs,
+              dialogsAfterFilter.length - completedDialogs - skippedDialogs
+            );
+
+            shouldStopMigration = true;
+          }
+        } else {
+          // ====================================================================
+          // 正常完成邏輯（無 FloodWait）
+          // ====================================================================
+          // [即時同步] 處理佇列（批次遷移完成後）
+          if (this.realtimeSyncService && lastBatchMessageId > 0) {
+            const queueResult = await this.realtimeSyncService.processQueue(
+              dialog.id,
+              lastBatchMessageId
+            );
+            if (queueResult.success) {
+              migratedMessages += queueResult.data.successCount;
+              failedMessages += queueResult.data.failedCount;
+            }
+          }
+
+          if (result.success) {
+            completedDialogs++;
+            progress = this.progressService.markDialogComplete(progress, dialog.id);
+          } else {
+            // 部分成功也視為完成（有失敗訊息但整體流程完成）
+            completedDialogs++;
+            progress = this.progressService.markDialogComplete(progress, dialog.id);
           }
         }
-
-        if (result.success) {
-          completedDialogs++;
-          progress = this.progressService.markDialogComplete(progress, dialog.id);
-        } else {
-          // 部分成功也視為完成（有失敗訊息但整體流程完成）
-          completedDialogs++;
-          progress = this.progressService.markDialogComplete(progress, dialog.id);
-        }
       } else {
+        // ====================================================================
+        // 遷移失敗處理
+        // ====================================================================
         failedDialogs++;
         const migrateError = 'message' in migrateResult.error
           ? migrateResult.error.message
@@ -388,6 +541,12 @@ export class MigrationOrchestrator {
 
       // 儲存進度
       await this.saveProgress(progress);
+
+      // 如果需要停止遷移（FloodWait 超過閾值或連續限流）
+      if (shouldStopMigration) {
+        console.log('\n⏸️ 遷移已暫停，進度已保存。請稍後重新執行 npm start 繼續。');
+        break;
+      }
     }
 
     // Step 4: 產生報告
@@ -471,8 +630,8 @@ export class MigrationOrchestrator {
     progress: MigrationProgress,
     status: DialogStatus
   ): Promise<Result<GroupInfo, string>> {
-    // 若是 InProgress，嘗試使用已存在的群組
-    if (status === DialogStatus.InProgress) {
+    // 若是 InProgress 或 PartiallyMigrated，嘗試使用已存在的群組
+    if (status === DialogStatus.InProgress || status === DialogStatus.PartiallyMigrated) {
       const dialogProgress = progress.dialogs.get(dialog.id);
       if (dialogProgress?.targetGroupId) {
         // 假設群組已存在，建立模擬的 GroupInfo
@@ -614,6 +773,76 @@ export class MigrationOrchestrator {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 顯示 FloodWait 倒數計時
+   *
+   * @param seconds - 等待秒數
+   */
+  private async displayCountdown(seconds: number): Promise<void> {
+    console.log(`\n⏳ FloodWait 倒數計時：`);
+
+    for (let remaining = seconds; remaining > 0; remaining--) {
+      // 每 10 秒顯示一次，或在最後 10 秒內每秒顯示
+      if (remaining <= 10 || remaining % 10 === 0) {
+        const minutes = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        const timeStr = minutes > 0
+          ? `${minutes}m ${secs}s`
+          : `${secs}s`;
+        process.stdout.write(`\r   剩餘 ${timeStr}...     `);
+      }
+      await this.sleep(1000);
+    }
+
+    process.stdout.write(`\r   等待完成！          \n`);
+  }
+
+  /**
+   * 發送 FloodWait 通知到 Saved Messages
+   *
+   * @param client - Telegram 客戶端
+   * @param waitSeconds - 需等待的秒數
+   * @param completedDialogs - 已完成的對話數
+   * @param pendingDialogs - 待處理的對話數
+   */
+  private async sendFloodWaitNotification(
+    client: TelegramClient,
+    waitSeconds: number,
+    completedDialogs: number,
+    pendingDialogs: number
+  ): Promise<void> {
+    const hours = Math.floor(waitSeconds / 3600);
+    const minutes = Math.floor((waitSeconds % 3600) / 60);
+    const timeStr = hours > 0
+      ? `${hours} 小時 ${minutes} 分鐘`
+      : `${minutes} 分鐘`;
+
+    const message = [
+      '⏸️ 遷移暫停通知',
+      '',
+      `遇到 Telegram 限流（FloodWait），需等待約 ${timeStr}`,
+      `已完成：${completedDialogs} 個對話`,
+      `待處理：${pendingDialogs} 個對話`,
+      '',
+      '進度已保存，請稍後重新執行 `npm start` 繼續遷移。',
+      '（將從中斷點自動恢復）',
+    ].join('\n');
+
+    try {
+      await client.invoke(
+        new Api.messages.SendMessage({
+          peer: 'me',
+          message,
+          noWebpage: true,
+        })
+      );
+      console.log('[FloodWait] 已發送通知到 Saved Messages');
+    } catch (error) {
+      // 發送通知失敗不應中斷遷移流程
+      console.error('[FloodWait] 發送通知失敗:', error);
+    }
   }
 
   /**
