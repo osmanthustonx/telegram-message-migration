@@ -328,14 +328,23 @@ async function main(): Promise<void> {
       if (progress.dialogs.size > 0) {
         console.log('');
         console.log('Dialog Status:');
+        console.log('-'.repeat(80));
+        console.log('  Status  ID'.padEnd(25) + 'Name'.padEnd(35) + 'Messages');
+        console.log('-'.repeat(80));
         for (const [dialogId, dialogProgress] of progress.dialogs) {
           const statusIcon =
             dialogProgress.status === DialogStatus.Completed ? '✓' :
             dialogProgress.status === DialogStatus.Failed ? '✗' :
             dialogProgress.status === DialogStatus.InProgress ? '→' :
             dialogProgress.status === DialogStatus.Skipped ? '-' : '○';
-          console.log(`  ${statusIcon} ${dialogId}: ${dialogProgress.status} (${dialogProgress.migratedCount} messages)`);
+          const idStr = `  ${statusIcon}     ${dialogId}`.padEnd(25);
+          const nameStr = (dialogProgress.dialogName || 'Unknown').substring(0, 33).padEnd(35);
+          const msgStr = `${dialogProgress.migratedCount}/${dialogProgress.totalCount}`;
+          console.log(`${idStr}${nameStr}${msgStr}`);
         }
+        console.log('-'.repeat(80));
+        console.log('\nTo reset a dialog: tg-migrate reset --dialog <ID>');
+        console.log('To reset all:      tg-migrate reset --all');
       }
     });
   }
@@ -493,6 +502,142 @@ async function main(): Promise<void> {
 
       // Disconnect
       await client.disconnect();
+    });
+  }
+
+  // Override reset command action - 重置遷移進度
+  const resetCmd = program.commands.find((cmd) => cmd.name() === 'reset');
+  if (resetCmd) {
+    resetCmd.action(async (options, command) => {
+      const globalOpts = command.optsWithGlobals();
+      const progressPath = globalOpts.progress || './migration-progress.json';
+
+      // 驗證參數
+      if (!options.dialog && !options.all) {
+        console.error('Error: Must specify --dialog <ids> or --all');
+        console.log('\nUsage examples:');
+        console.log('  tg-migrate reset --dialog 123456789       # Reset specific dialog');
+        console.log('  tg-migrate reset --dialog 123,456,789     # Reset multiple dialogs');
+        console.log('  tg-migrate reset --all                    # Reset all dialogs');
+        console.log('  tg-migrate reset --all --force            # Reset all without confirmation');
+        process.exit(1);
+      }
+
+      const progressService = new ProgressService();
+      const loadResult = await progressService.load(progressPath);
+
+      if (!loadResult.success) {
+        console.log('No progress file found. Nothing to reset.');
+        return;
+      }
+
+      const progress = loadResult.data;
+
+      if (options.all) {
+        // 重置所有對話
+        if (!options.force) {
+          const dialogCount = progress.dialogs.size;
+          const confirm = await input.text(
+            `Are you sure you want to reset ALL ${dialogCount} dialogs? (yes/no): `
+          );
+          if (confirm.toLowerCase() !== 'yes') {
+            console.log('Reset cancelled.');
+            return;
+          }
+        }
+
+        // 清空所有對話進度
+        const dialogIds = Array.from(progress.dialogs.keys());
+        for (const dialogId of dialogIds) {
+          progress.dialogs.delete(dialogId);
+        }
+
+        // 重置統計
+        progress.stats = {
+          totalDialogs: 0,
+          completedDialogs: 0,
+          failedDialogs: 0,
+          skippedDialogs: 0,
+          totalMessages: 0,
+          migratedMessages: 0,
+          failedMessages: 0,
+          floodWaitCount: 0,
+          totalFloodWaitSeconds: 0,
+        };
+
+        progress.updatedAt = new Date().toISOString();
+        progress.currentPhase = 'idle';
+
+        const saveResult = await progressService.save(progressPath, progress);
+        if (saveResult.success) {
+          console.log(`✓ Reset all ${dialogIds.length} dialogs successfully.`);
+          console.log(`  Progress file: ${progressPath}`);
+        } else {
+          console.error(`Failed to save progress: ${saveResult.error.type}`);
+          process.exit(1);
+        }
+      } else if (options.dialog) {
+        // 重置指定對話
+        const dialogIds = options.dialog.split(',').map((id: string) => id.trim());
+        const resetIds: string[] = [];
+        const notFoundIds: string[] = [];
+
+        for (const dialogId of dialogIds) {
+          if (progress.dialogs.has(dialogId)) {
+            progress.dialogs.delete(dialogId);
+            resetIds.push(dialogId);
+          } else {
+            notFoundIds.push(dialogId);
+          }
+        }
+
+        if (resetIds.length > 0) {
+          // 更新統計（重新計算）
+          let completedCount = 0;
+          let failedCount = 0;
+          let skippedCount = 0;
+          let migratedMessages = 0;
+          let failedMessages = 0;
+
+          for (const dialogProgress of progress.dialogs.values()) {
+            if (dialogProgress.status === DialogStatus.Completed) completedCount++;
+            else if (dialogProgress.status === DialogStatus.Failed) failedCount++;
+            else if (dialogProgress.status === DialogStatus.Skipped) skippedCount++;
+            migratedMessages += dialogProgress.migratedCount;
+            failedMessages += dialogProgress.errors.length;
+          }
+
+          progress.stats.totalDialogs = progress.dialogs.size;
+          progress.stats.completedDialogs = completedCount;
+          progress.stats.failedDialogs = failedCount;
+          progress.stats.skippedDialogs = skippedCount;
+          progress.stats.migratedMessages = migratedMessages;
+          progress.stats.failedMessages = failedMessages;
+          progress.updatedAt = new Date().toISOString();
+
+          const saveResult = await progressService.save(progressPath, progress);
+          if (saveResult.success) {
+            console.log(`✓ Reset ${resetIds.length} dialog(s) successfully:`);
+            for (const id of resetIds) {
+              console.log(`  - ${id}`);
+            }
+          } else {
+            console.error(`Failed to save progress: ${saveResult.error.type}`);
+            process.exit(1);
+          }
+        }
+
+        if (notFoundIds.length > 0) {
+          console.log(`\n⚠ Dialog(s) not found in progress file:`);
+          for (const id of notFoundIds) {
+            console.log(`  - ${id}`);
+          }
+        }
+
+        if (resetIds.length === 0) {
+          console.log('No dialogs were reset.');
+        }
+      }
     });
   }
 

@@ -133,6 +133,18 @@ export function createProgram(): Command {
       console.log('List command', { ...options, global: globalOpts });
     });
 
+  // Reset command - 重置遷移進度
+  program
+    .command('reset')
+    .description('Reset migration progress for specific dialogs or all')
+    .option('--dialog <ids>', 'Comma-separated list of dialog IDs to reset')
+    .option('--all', 'Reset all dialogs (requires confirmation)', false)
+    .option('--force', 'Skip confirmation prompt', false)
+    .action(async (options, command) => {
+      const globalOpts = command.optsWithGlobals();
+      console.log('Reset command', { ...options, global: globalOpts });
+    });
+
   return program;
 }
 
