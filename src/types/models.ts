@@ -537,7 +537,7 @@ export interface DetailedMigrationReport {
  */
 export type ProgressEvent =
   | { type: 'dialog_started'; dialogId: string; totalMessages: number }
-  | { type: 'batch_completed'; dialogId: string; count: number; total: number }
+  | { type: 'batch_completed'; dialogId: string; count: number; total: number; lastMessageId: number }
   | { type: 'dialog_completed'; dialogId: string; result: DialogMigrationResult }
   | { type: 'flood_wait'; seconds: number; operation: string };
 

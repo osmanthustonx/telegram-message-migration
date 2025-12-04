@@ -87,6 +87,11 @@ export class MigrationOrchestrator {
   /** 即時同步服務（可選，預設啟用） */
   private realtimeSyncService?: IRealtimeSyncService;
 
+  /** 當前遷移進度（用於即時保存） */
+  private currentProgress: MigrationProgress | null = null;
+  /** 是否正在關閉中 */
+  private isShuttingDown: boolean = false;
+
   /**
    * 建構子
    *
@@ -130,6 +135,46 @@ export class MigrationOrchestrator {
   }
 
   /**
+   * 請求關閉遷移流程
+   *
+   * 設置關閉標誌，讓遷移迴圈在安全點停止
+   */
+  requestShutdown(): void {
+    this.isShuttingDown = true;
+    console.log('\n[Orchestrator] 收到關閉請求，將在當前批次完成後停止...');
+  }
+
+  /**
+   * 立即保存當前進度
+   *
+   * 用於 Ctrl+C 等中斷時保存進度
+   *
+   * @returns 是否成功保存
+   */
+  async saveCurrentProgress(): Promise<boolean> {
+    if (!this.currentProgress) {
+      console.log('[Orchestrator] 沒有進度需要保存');
+      return false;
+    }
+
+    try {
+      await this.saveProgress(this.currentProgress);
+      console.log(`[Orchestrator] 進度已保存到 ${this.config.progressPath}`);
+      return true;
+    } catch (error) {
+      console.error('[Orchestrator] 保存進度失敗:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 檢查是否正在關閉中
+   */
+  isShutdownRequested(): boolean {
+    return this.isShuttingDown;
+  }
+
+  /**
    * 執行完整遷移流程
    *
    * 流程：
@@ -165,8 +210,12 @@ export class MigrationOrchestrator {
     let migratedMessages = 0;
     let failedMessages = 0;
 
+    // 重置關閉狀態
+    this.isShuttingDown = false;
+
     // Step 1: 載入進度
     let progress = await this.loadProgress();
+    this.currentProgress = progress; // 保存引用以便中斷時保存
 
     // Step 2: 取得對話清單（支援重試）
     const dialogsResult = await this.getDialogsWithRetry(client, maxRetries);
@@ -205,10 +254,30 @@ export class MigrationOrchestrator {
 
     // Step 3: 遍歷對話並執行遷移
     for (const dialog of dialogsAfterFilter) {
+      // 檢查是否收到關閉請求
+      if (this.isShuttingDown) {
+        console.log('\n[Orchestrator] 收到關閉請求，停止遷移迴圈');
+        break;
+      }
+
       totalMessages += dialog.messageCount;
 
       // 檢查是否已完成
-      const status = this.progressService.getDialogStatus(progress, dialog.id);
+      let status = this.progressService.getDialogStatus(progress, dialog.id);
+
+      // 如果對話尚未初始化，先初始化
+      if (status === DialogStatus.Pending && !progress.dialogs.has(dialog.id)) {
+        const ps = this.progressService as ProgressService;
+        progress = ps.initializeDialog(progress, {
+          dialogId: dialog.id,
+          dialogName: dialog.name,
+          dialogType: dialog.type,
+          totalCount: dialog.messageCount,
+        });
+        this.currentProgress = progress;
+        console.log(`[Dialog ${dialog.id}] 初始化對話進度: ${dialog.name} (${dialog.messageCount} 則訊息)`);
+      }
+
       if (status === DialogStatus.Completed) {
         skippedDialogs++;
         // 加入已遷移的訊息數（使用 ProgressService 的內部方法）
@@ -221,7 +290,7 @@ export class MigrationOrchestrator {
 
       // 檢查是否為部分遷移狀態（需要從斷點恢復）
       let resumeFromMessageId: number | undefined = undefined;
-      if (status === DialogStatus.PartiallyMigrated) {
+      if (status === DialogStatus.PartiallyMigrated || status === DialogStatus.InProgress) {
         const resumePoint = (this.progressService as ProgressService).getResumePoint(
           progress,
           dialog.id
@@ -294,12 +363,22 @@ export class MigrationOrchestrator {
 
       const targetGroup = groupResult.data;
 
-      // 如果是新建立的群組，增加每日計數
+      // 如果是新建立的群組，立即保存 targetGroupId（確保中斷時可恢復）
       if (needsNewGroup) {
         const ps = this.progressService as ProgressService;
+        // 增加每日計數
         progress = ps.incrementDailyGroupCreation(progress);
         const currentCount = ps.getDailyGroupCreationCount(progress);
         console.log(`[Daily Limit] Group created: ${currentCount}/${dailyGroupLimit}`);
+
+        // 立即保存 targetGroupId，設定狀態為 InProgress
+        // 這確保即使在邀請用戶前中斷，下次執行也能使用同一群組
+        if (typeof ps.markDialogStarted === 'function') {
+          progress = ps.markDialogStarted(progress, dialog.id, targetGroup.id);
+          this.currentProgress = progress;
+          await this.saveProgress(progress);
+          console.log(`[Dialog ${dialog.id}] Target group saved: ${targetGroup.id}`);
+        }
       }
 
       // [即時同步] 註冊對話-群組映射
@@ -307,9 +386,11 @@ export class MigrationOrchestrator {
         this.realtimeSyncService.registerMapping(dialog.id, targetGroup.id);
       }
 
-      // 邀請 B 帳號（若尚未進行中或部分遷移）
-      // InProgress 和 PartiallyMigrated 狀態已完成邀請
-      if (status !== DialogStatus.InProgress && status !== DialogStatus.PartiallyMigrated) {
+      // 邀請 B 帳號
+      // needsNewGroup 為 true 時需要邀請（已在上方保存 targetGroupId）
+      // InProgress 或 PartiallyMigrated 狀態表示已完成邀請，跳過
+      const originalStatus = status; // 保存原始狀態以判斷是否需要邀請
+      if (originalStatus !== DialogStatus.InProgress && originalStatus !== DialogStatus.PartiallyMigrated) {
         const inviteResult = await this.groupService.inviteUser(
           client,
           targetGroup,
@@ -338,16 +419,62 @@ export class MigrationOrchestrator {
           continue;
         }
 
-        // 標記開始遷移
-        const ps = this.progressService as ProgressService;
-        if (typeof ps.markDialogStarted === 'function') {
-          progress = ps.markDialogStarted(progress, dialog.id, targetGroup.id);
+        // 如果不是新群組（恢復的舊群組但狀態不是 InProgress），標記開始遷移
+        // needsNewGroup 為 true 時已在上方呼叫 markDialogStarted
+        if (!needsNewGroup) {
+          const ps = this.progressService as ProgressService;
+          if (typeof ps.markDialogStarted === 'function') {
+            progress = ps.markDialogStarted(progress, dialog.id, targetGroup.id);
+            this.currentProgress = progress;
+            await this.saveProgress(progress);
+          }
         }
+      }
+
+      // 檢查是否收到關閉請求（在開始遷移前再次檢查）
+      if (this.isShuttingDown) {
+        console.log('\n[Orchestrator] 收到關閉請求，在遷移對話前停止');
+        break;
       }
 
       // 執行訊息遷移
       const migrationConfig = this.createMigrationConfig();
-      const progressCallback = this.createProgressCallback();
+
+      // 建立進度回呼，在每個批次完成後更新進度並保存
+      const progressCallback: ProgressCallback = async (event) => {
+        switch (event.type) {
+          case 'batch_completed':
+            // 每批次完成後更新進度
+            if (event.dialogId && event.count !== undefined && event.lastMessageId) {
+              const ps = this.progressService as ProgressService;
+              // 計算本批次的訊息數（使用累計值的差）
+              const existingProgress = progress.dialogs.get(event.dialogId);
+              const previousCount = existingProgress?.migratedCount ?? 0;
+              const batchCount = event.count - previousCount;
+
+              if (batchCount > 0) {
+                // 使用 batch_completed 事件中的 lastMessageId 更新進度
+                progress = ps.updateMessageProgress(
+                  progress,
+                  event.dialogId,
+                  event.lastMessageId,
+                  batchCount
+                );
+                this.currentProgress = progress;
+                // 即時保存進度，確保 Ctrl+C 時有最新狀態
+                await this.saveProgress(progress);
+              }
+            }
+            break;
+          case 'flood_wait':
+            this.reportService.recordFloodWait({
+              timestamp: new Date().toISOString(),
+              seconds: event.seconds,
+              operation: event.operation,
+            });
+            break;
+        }
+      };
 
       const migrateResult = await this.migrationService.migrateDialog(
         client,
@@ -534,12 +661,13 @@ export class MigrationOrchestrator {
         }
       }
 
-      // [即時同步] 停止監聽並清理資源
+      // [即時同步] 停止監聯並清理資源
       if (this.realtimeSyncService) {
         this.realtimeSyncService.stopListening(dialog.id);
       }
 
-      // 儲存進度
+      // 儲存進度並更新 currentProgress 引用
+      this.currentProgress = progress;
       await this.saveProgress(progress);
 
       // 如果需要停止遷移（FloodWait 超過閾值或連續限流）
@@ -573,11 +701,25 @@ export class MigrationOrchestrator {
    * 載入進度檔案
    */
   private async loadProgress(): Promise<MigrationProgress> {
+    console.log(`[Progress] Loading from: ${this.config.progressPath}`);
     const result = await this.progressService.load(this.config.progressPath);
     if (result.success) {
-      return result.data;
+      const progress = result.data;
+      // 顯示已載入的進度摘要
+      const completedCount = Array.from(progress.dialogs.values()).filter(
+        d => d.status === DialogStatus.Completed
+      ).length;
+      const inProgressCount = Array.from(progress.dialogs.values()).filter(
+        d => d.status === DialogStatus.InProgress || d.status === DialogStatus.PartiallyMigrated
+      ).length;
+      console.log(`[Progress] Loaded successfully:`);
+      console.log(`  - Total dialogs tracked: ${progress.dialogs.size}`);
+      console.log(`  - Completed: ${completedCount}`);
+      console.log(`  - In progress/Partial: ${inProgressCount}`);
+      return progress;
     }
     // 載入失敗時建立空進度
+    console.log(`[Progress] No existing progress found, starting fresh`);
     return this.createEmptyProgress();
   }
 
@@ -634,16 +776,36 @@ export class MigrationOrchestrator {
     if (status === DialogStatus.InProgress || status === DialogStatus.PartiallyMigrated) {
       const dialogProgress = progress.dialogs.get(dialog.id);
       if (dialogProgress?.targetGroupId) {
-        // 假設群組已存在，建立模擬的 GroupInfo
-        // 實際應用中應從 API 取得
-        return success({
-          id: dialogProgress.targetGroupId,
-          accessHash: '',
-          name: `${this.config.groupNamePrefix}${dialog.name}`,
-          sourceDialogId: dialog.id,
-          createdAt: new Date().toISOString(),
-          entity: dialog.entity,
-        });
+        // 從 Telegram API 取得目標群組的 entity
+        try {
+          const targetGroupId = dialogProgress.targetGroupId;
+          // targetGroupId 是 channel ID（正數字串，如 "1234567890"）
+          // 對於 supergroup/channel，peer ID 格式是 -100{channelId}
+          // 例如 channelId=1234567890 -> peerId=-1001234567890
+          const channelId = targetGroupId.replace(/^-/, ''); // 移除可能的負號
+          const peerId = `-100${channelId}`;
+
+          console.log(`[Dialog ${dialog.id}] 嘗試取得目標群組 entity: channelId=${channelId}, peerId=${peerId}`);
+
+          // 使用 peerId 字串直接呼叫 getEntity（GramJS 支援數字字串）
+          const targetEntity = await client.getEntity(peerId);
+
+          console.log(`[Dialog ${dialog.id}] 成功從進度恢復目標群組: ${targetGroupId}`);
+
+          return success({
+            id: targetGroupId,
+            accessHash: '',
+            name: `${this.config.groupNamePrefix}${dialog.name}`,
+            sourceDialogId: dialog.id,
+            createdAt: new Date().toISOString(),
+            entity: targetEntity,
+          });
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[Dialog ${dialog.id}] 無法取得目標群組 entity: ${errorMsg}`);
+          // 如果無法取得目標群組，則建立新群組
+          console.log(`[Dialog ${dialog.id}] 將建立新群組...`);
+        }
       }
     }
 
@@ -719,24 +881,6 @@ export class MigrationOrchestrator {
       progressPath: this.config.progressPath,
       dialogFilter: this.config.dialogFilter,
       dateRange: this.config.dateRange,
-    };
-  }
-
-  /**
-   * 建立進度回呼
-   */
-  private createProgressCallback(): ProgressCallback {
-    return (event) => {
-      switch (event.type) {
-        case 'flood_wait':
-          this.reportService.recordFloodWait({
-            timestamp: new Date().toISOString(),
-            seconds: event.seconds,
-            operation: event.operation,
-          });
-          break;
-        // 其他事件類型可在此處理
-      }
     };
   }
 

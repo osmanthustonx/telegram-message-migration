@@ -1,25 +1,39 @@
 {
   "version": "1.0",
   "startedAt": "2025-11-25T16:22:02.109Z",
-  "updatedAt": "2025-11-29T10:37:07.857Z",
+  "updatedAt": "2025-12-04T03:04:27.732Z",
   "sourceAccount": "",
   "targetAccount": "",
   "currentPhase": "idle",
-  "dialogs": {},
+  "dialogs": {
+    "1": {
+      "dialogId": "1",
+      "dialogName": "Test Dialog",
+      "dialogType": "private",
+      "status": "completed",
+      "targetGroupId": "999999",
+      "lastMessageId": null,
+      "migratedCount": 0,
+      "totalCount": 100,
+      "errors": [],
+      "startedAt": "2025-12-04T03:04:27.724Z",
+      "completedAt": "2025-12-04T03:04:27.732Z"
+    }
+  },
   "floodWaitEvents": [],
   "stats": {
-    "totalDialogs": 0,
-    "completedDialogs": 0,
+    "totalDialogs": 1,
+    "completedDialogs": 1,
     "failedDialogs": 0,
     "skippedDialogs": 0,
-    "totalMessages": 0,
+    "totalMessages": 100,
     "migratedMessages": 0,
     "failedMessages": 0,
     "floodWaitCount": 0,
     "totalFloodWaitSeconds": 0
   },
   "dailyGroupCreation": {
-    "date": "2025-11-29",
-    "count": 2
+    "date": "2025-12-04",
+    "count": 1
   }
 }

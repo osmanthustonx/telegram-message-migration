@@ -123,6 +123,16 @@ export function createProgram(): Command {
       console.log('Clean command', { ...options, global: globalOpts });
     });
 
+  // List command - 列出所有對話
+  program
+    .command('list')
+    .description('List all dialogs with their IDs')
+    .option('--type <type>', 'Filter by dialog type (private, group, supergroup, channel, bot)')
+    .action(async (options, command) => {
+      const globalOpts = command.optsWithGlobals();
+      console.log('List command', { ...options, global: globalOpts });
+    });
+
   return program;
 }
 

@@ -10,7 +10,34 @@
  */
 
 import * as dotenv from 'dotenv';
-dotenv.config();
+import * as path from 'path';
+import { existsSync } from 'fs';
+
+// 載入 .env 檔案（支援多個路徑）
+function loadEnvFile(): void {
+  // process.argv[0] 是 Node.js 執行檔路徑或 SEA 執行檔路徑
+  const execPath = process.argv[0] ?? process.cwd();
+
+  const possiblePaths = [
+    // 1. 當前工作目錄
+    path.resolve(process.cwd(), '.env'),
+    // 2. 執行檔所在目錄（適用於 SEA executable）
+    path.resolve(path.dirname(execPath), '.env'),
+  ];
+
+  for (const envPath of possiblePaths) {
+    if (existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+      console.log(`[Config] Loaded .env from: ${envPath}`);
+      return;
+    }
+  }
+
+  // 如果找不到任何 .env，使用預設行為（不顯示警告，因為可能使用環境變數）
+  dotenv.config();
+}
+
+loadEnvFile();
 // @ts-expect-error - input module has no type declarations
 import input from 'input';
 import * as fs from 'fs/promises';
@@ -174,12 +201,39 @@ async function main(): Promise<void> {
 
       // Connect shutdown handler to orchestrator
       let isShuttingDown = false;
+
+      // 註冊保存進度回調（Ctrl+C 時會呼叫）
+      shutdownHandler.onSaveProgress(async () => {
+        logService.info('Saving progress before shutdown...');
+        const saved = await orchestrator.saveCurrentProgress();
+        if (saved) {
+          logService.info('Progress saved successfully');
+        }
+      });
+
+      // 註冊關閉回調
       shutdownHandler.onShutdown(async () => {
         if (isShuttingDown) return;
         isShuttingDown = true;
-        logService.info('Shutdown requested, saving progress...');
-        // Progress is saved automatically by orchestrator after each dialog
-        await client.disconnect();
+        logService.info('Shutdown requested...');
+
+        // 請求 orchestrator 停止遷移迴圈
+        orchestrator.requestShutdown();
+
+        // 斷開連線
+        try {
+          await client.disconnect();
+          logService.info('Disconnected from Telegram');
+        } catch (err) {
+          const disconnectError = err instanceof Error ? err : new Error(String(err));
+          logService.error('Error disconnecting', disconnectError);
+        }
+      });
+
+      // 註冊強制退出回調
+      shutdownHandler.onForceExit(() => {
+        logService.warn('Force exit triggered');
+        process.exit(1);
       });
 
       // Run migration
@@ -349,6 +403,96 @@ async function main(): Promise<void> {
         console.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
+    });
+  }
+
+  // Override list command action - 列出所有對話
+  const listCmd = program.commands.find((cmd) => cmd.name() === 'list');
+  if (listCmd) {
+    listCmd.action(async (options, _command) => {
+      // Load configuration
+      const configLoader = new ConfigLoader();
+      const configResult = await configLoader.loadInteractive();
+
+      if (!configResult.success) {
+        console.error(`Configuration error: ${configResult.error.type}`);
+        process.exit(1);
+      }
+
+      const config = configResult.data;
+
+      // Initialize AuthService
+      const authService = new AuthService({
+        codePrompt: async (): Promise<string> => {
+          return await input.text('Please enter the verification code: ');
+        },
+        passwordPrompt: async (): Promise<string> => {
+          return await input.password('Please enter your 2FA password: ');
+        },
+      });
+
+      // Authenticate
+      console.log('\nAuthenticating with Telegram...');
+      const authResult = await authService.authenticate({
+        apiId: config.apiId,
+        apiHash: config.apiHash,
+        phoneNumber: config.phoneNumberA,
+        sessionPath: config.sessionPath,
+      });
+
+      if (!authResult.success) {
+        const authError = authResult.error as { type: string; message?: string };
+        console.error(`Authentication failed: ${authError.message ?? authError.type}`);
+        process.exit(1);
+      }
+
+      const client = authResult.data;
+      console.log('Authentication successful\n');
+
+      // Get dialogs
+      const { DialogService } = await import('./services/dialog-service.js');
+      const dialogService = new DialogService();
+      const dialogsResult = await dialogService.getAllDialogs(client);
+
+      if (!dialogsResult.success) {
+        console.error(`Failed to get dialogs: ${dialogsResult.error.type}`);
+        await client.disconnect();
+        process.exit(1);
+      }
+
+      let dialogs = dialogsResult.data;
+
+      // Apply type filter if specified
+      if (options.type) {
+        dialogs = dialogs.filter(d => d.type === options.type);
+      }
+
+      // Apply config filter (excludeTypes)
+      if (config.dialogFilter?.excludeTypes) {
+        dialogs = dialogs.filter(d => !config.dialogFilter!.excludeTypes!.includes(d.type));
+      }
+
+      // Display dialogs
+      console.log('='.repeat(80));
+      console.log('ID'.padEnd(15) + 'Type'.padEnd(12) + 'Messages'.padEnd(10) + 'Name');
+      console.log('='.repeat(80));
+
+      for (const dialog of dialogs) {
+        const id = dialog.id.padEnd(15);
+        const type = dialog.type.padEnd(12);
+        const msgCount = dialog.messageCount.toString().padEnd(10);
+        console.log(`${id}${type}${msgCount}${dialog.name}`);
+      }
+
+      console.log('='.repeat(80));
+      console.log(`Total: ${dialogs.length} dialogs`);
+
+      if (config.dialogFilter?.excludeTypes) {
+        console.log(`(Filtered out types: ${config.dialogFilter.excludeTypes.join(', ')})`);
+      }
+
+      // Disconnect
+      await client.disconnect();
     });
   }
 

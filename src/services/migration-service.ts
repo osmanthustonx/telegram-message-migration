@@ -257,13 +257,18 @@ export class MigrationService implements IMigrationService {
 
         totalProcessed += batchIds.length;
 
-        // 報告批次完成
-        if (onProgress) {
+        // 報告批次完成（包含最後處理的訊息 ID，用於斷點續傳）
+        if (onProgress && batchIds.length > 0) {
+          // 優先使用已更新的 lastMigratedMessageId，若尚未設定則使用批次中最後一個 ID
+          // 由於上方已檢查 batchIds.length > 0，這裡必定有值
+          const lastBatchId = batchIds[batchIds.length - 1] as number;
+          const batchLastId = lastMigratedMessageId ?? lastBatchId;
           const event: ProgressEvent = {
             type: 'batch_completed',
             dialogId: sourceDialog.id,
             count: totalProcessed,
             total: totalMessages,
+            lastMessageId: batchLastId,
           };
           onProgress(event);
         }

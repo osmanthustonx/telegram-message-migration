@@ -157,7 +157,9 @@ function createMockProgressService() {
       data: mockProgress,
     }),
     save: vi.fn().mockResolvedValue({ success: true, data: undefined }),
-    updateDialogProgress: vi.fn(),
+    initializeDialog: vi.fn().mockImplementation((p) => p),
+    updateDialogProgress: vi.fn().mockImplementation((p) => p),
+    updateMessageProgress: vi.fn().mockImplementation((p) => p),
     updateStats: vi.fn(),
     incrementGroupCreatedToday: vi.fn(),
     canCreateGroupToday: vi.fn().mockReturnValue(true),
@@ -171,6 +173,7 @@ function createMockProgressService() {
       ...progress,
       groupsCreatedToday: (progress.groupsCreatedToday || 0) + 1,
     })),
+    markDialogStarted: vi.fn().mockImplementation((p) => p),
     markDialogComplete: vi.fn().mockImplementation((progress, dialogId) => {
       const dialogs = new Map(progress.dialogs);
       const existing = dialogs.get(dialogId);
@@ -179,6 +182,9 @@ function createMockProgressService() {
       }
       return { ...progress, dialogs };
     }),
+    markDialogFailed: vi.fn().mockImplementation((p) => p),
+    markDialogPartiallyMigrated: vi.fn().mockImplementation((p) => p),
+    getResumePoint: vi.fn().mockReturnValue(null),
   };
 }
 
@@ -225,13 +231,16 @@ describe('Error Recovery (Task 11.2)', () => {
         initializeDialog: vi.fn().mockImplementation((p) => p),
         markDialogStarted: vi.fn().mockImplementation((p) => p),
         markDialogComplete: vi.fn().mockImplementation((p) => p),
+        markDialogFailed: vi.fn().mockImplementation((p) => p),
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
+        updateMessageProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockImplementation((_, dialogId) => {
           return existingProgress.dialogs.get(dialogId)?.status || DialogStatus.Pending;
         }),
         getDialogProgress: vi.fn().mockImplementation((_, dialogId) => {
           return existingProgress.dialogs.get(dialogId);
         }),
+        getResumePoint: vi.fn().mockReturnValue(null),
         getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
         incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
         resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
@@ -292,10 +301,13 @@ describe('Error Recovery (Task 11.2)', () => {
         initializeDialog: vi.fn().mockImplementation((p) => p),
         markDialogStarted: vi.fn().mockImplementation((p) => p),
         markDialogComplete: vi.fn().mockImplementation((p) => p),
+        markDialogFailed: vi.fn().mockImplementation((p) => p),
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
+        updateMessageProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockImplementation((_, dialogId) => {
           return existingProgress.dialogs.get(dialogId)?.status || DialogStatus.Pending;
         }),
+        getResumePoint: vi.fn().mockReturnValue(null),
         getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
         incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
         resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
@@ -364,9 +376,12 @@ describe('Error Recovery (Task 11.2)', () => {
         initializeDialog: vi.fn().mockImplementation((p) => p),
         markDialogStarted: vi.fn().mockImplementation((p) => p),
         markDialogComplete: vi.fn().mockImplementation((p) => p),
+        markDialogFailed: vi.fn().mockImplementation((p) => p),
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
+        updateMessageProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockReturnValue(DialogStatus.InProgress),
         getDialogProgress: vi.fn().mockReturnValue(existingProgress.dialogs.get('1')),
+        getResumePoint: vi.fn().mockReturnValue({ lastMessageId: 50, migratedCount: 50 }),
         getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
         incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
         resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
@@ -778,7 +793,9 @@ describe('Error Recovery (Task 11.2)', () => {
         markDialogComplete: vi.fn().mockImplementation((p) => p),
         markDialogFailed: vi.fn().mockImplementation((p) => p),
         updateDialogProgress: vi.fn().mockImplementation((p) => p),
+        updateMessageProgress: vi.fn().mockImplementation((p) => p),
         getDialogStatus: vi.fn().mockReturnValue(DialogStatus.Pending),
+        getResumePoint: vi.fn().mockReturnValue(null),
         getDailyGroupCreationCount: vi.fn().mockReturnValue(0),
         incrementDailyGroupCreation: vi.fn().mockImplementation((p) => p),
         resetDailyGroupCreation: vi.fn().mockImplementation((p) => p),
